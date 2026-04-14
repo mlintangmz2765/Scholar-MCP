@@ -109,7 +109,8 @@ The server automatically registers the following tools to the connected MCP Clie
 | `search_papers_tool` | `(query: str, limit: int = 5, use_scopus: bool = True)` | Retrieves paper metadata. Defaults to Scopus; toggle `use_scopus=False` to force OpenAlex lookup. |
 | `get_paper_details_tool` | `(paper_id: str)` | Fetches granular metadata, full abstracts, and resolves Open Access status via Scopus. |
 | `get_unpaywall_link_tool` | `(doi: str)` | Checks the Unpaywall database using a DOI to locate free institutional or pre-print PDF paths. |
-| `get_full_text_tool` | `(url: str)` | Downloads an Open Access URL into a memory buffer and returns raw unstructured text. |
+| `get_citations_tool` | `(paper_id: str, direction: str = "references")` | Tracks lineage. Fetch bibliography (references) or forward citations via OpenAlex natively. |
+| `get_full_text_tool` | `(url: str)` | Downloads an Open Access PDF down to unstructured text, accurately preserving layout using `PyMuPDF`. |
 | `get_full_text_visual_tool`| `(url: str, max_pages: int = 3)` | Streams an OA PDF into a high-fidelity image sequence directly to the AI's Vision pipeline. |
 
 ## Development

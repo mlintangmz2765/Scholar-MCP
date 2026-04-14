@@ -34,8 +34,6 @@ async def extract_text_from_pdf_url(url: str) -> str:
             text_blocks = []
             for i in range(len(doc)):
                 page = doc.load_page(i)
-                # get_text("text") inherently respects natural reading order better than pypdf
-                # For strict block formatting, we could use get_text("blocks") but "text" is usually enough
                 text_blocks.append(f"--- Page {i+1} ---\n" + page.get_text("text", sort=True))
             full_text = "\n\n".join(text_blocks)
             return full_text

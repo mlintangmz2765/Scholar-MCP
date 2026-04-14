@@ -205,28 +205,23 @@ async def get_citations_openalex(doi_or_id: str, direction: str = "references", 
     direction="references": returns papers that the target paper cited.
     direction="citations": returns papers that cite the target paper.
     """
-    # 1. First, resolve the id. OpenAlex supports /works/doi:10.xxx or /works/Wxxxx
     if doi_or_id.startswith("10."):
         resolve_url = f"https://api.openalex.org/works/https://doi.org/{doi_or_id}"
     elif doi_or_id.startswith("W"):
         resolve_url = f"https://api.openalex.org/works/{doi_or_id}"
     else:
-        # Assuming Scopus ID or other, OpenAlex doesn't directly map well without a DOI.
         raise ValueError("Citation tracking requires a DOI (e.g., 10.10xx/...) or an OpenAlex ID (e.g., Wxxxx).")
         
     async with httpx.AsyncClient(follow_redirects=True) as client:
         res = await client.get(resolve_url, params={"mailto": CONTACT_EMAIL})
         res.raise_for_status()
         work_data = res.json()
-        openalex_id = work_data.get("id").split("/")[-1] # Extracts W1234567890
+        openalex_id = work_data.get("id").split("/")[-1]
         
-    # 2. Query the filter
     url = "https://api.openalex.org/works"
     if direction == "citations":
-        # Works that cite this paper
         target_filter = f"cites:{openalex_id}"
     else:
-        # Works that this paper cited (references)
         target_filter = f"cited_by:{openalex_id}"
         
     params = {
