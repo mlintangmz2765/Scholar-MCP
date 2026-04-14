@@ -86,9 +86,9 @@ Configure your target MCP Client (e.g., Claude Desktop, Cursor, Gemini CLI) by p
 {
   "mcpServers": {
     "scholar-mcp": {
-      "command": "/absolute/path/to/scholar_mcp/venv/bin/python",
+      "command": "/absolute/path/to/Scholar-MCP/venv/bin/python",
       "args": [
-        "/absolute/path/to/scholar_mcp/server.py"
+        "/absolute/path/to/Scholar-MCP/server.py"
       ],
       "env": {
         "SCOPUS_API_KEY": "your_scopus_api_key_here",
