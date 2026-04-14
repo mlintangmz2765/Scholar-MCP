@@ -1,100 +1,129 @@
-# Scholar MCP Server 🎓
+# Scholar MCP Server
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-FastMCP-brightgreen)](https://modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A robust **Model Context Protocol (MCP)** server built in Python that empowers AI assistants (like Claude, Gemini, or Cursor) to act as advanced scientific research agents. The server connects directly to the **Scopus API** and **OpenAlex API** to search academic literature, retrieve rich metadata, and securely extract full-text content from Open Access PDFs on-the-fly.
+A Model Context Protocol (MCP) server designed to provide Local and Cloud AI agents with comprehensive access to scientific literature. The server acts as a middleware between LLMs and academic databases (Scopus, OpenAlex, Unpaywall), providing automated paper discovery, metadata extraction, and multimodal Open Access (OA) PDF rendering capabilities.
 
-## ✨ Key Features
+## Features
 
-- **Multi-Source Architecture:** 
-  - 🥇 **Scopus API Integration:** Delivers gold-standard metadata (DOIs, exact citations, authoritative abstracts).
-  - 🥈 **OpenAlex Fallback:** An open, massive catalog highly optimized for hunting down *Open Access (OA)* PDF URLs.
-  - 🥉 **Unpaywall Routing:** Automatically checks DOIs against Unpaywall to discover legal pre-prints and institutional repository PDFs.
-- **On-The-Fly PDF & Vision Extraction:** 
-  - **Text Extractor:** Automatically downloads OA PDFs into memory and extracts raw text via `pypdf`.
-  - **Multimodal Visual Renderer:** Uses `PyMuPDF` to render PDF pages as raw high-res images directly to the AI's Vision Model context (to analyze charts, tables, and layouts).
-- **Smart Paywall Awareness:** Proactively detects "Closed Access" papers and dynamically injects "Meta Instructions" instructing the AI to politely ask the human prompt engineer to download the payload via university VPNs manually.
-- **FastMCP Built-in:** Utilizes the lightweight standard implementation of the Model Context Protocol for seamless integration via `stdio`.
+- **Multi-Source Discovery Pipeline**
+  - **Scopus:** Primary metadata retrieval engine (requires API Key).
+  - **OpenAlex:** Robust fallback for Open Access routing and deep search parsing.
+  - **Unpaywall Integration:** Automated DOI resolution to institutional OA repositories.
+- **On-the-Fly Document Extraction**
+  - High-speed buffer extraction for unstructured text (`pypdf` / `BeautifulSoup4`).
+  - Native Multimodal Vision rendering via `PyMuPDF` (captures charts, tables, and latex logic).
+- **Graceful Paywall Degradation**
+  - Fallback mechanisms designed for human-in-the-loop workflows. Injects meta-instructions to the LLM agent to request manual document uploads when encountering `401 Unauthorized` responses from proprietary publishers.
 
-## 🛠️ Prerequisites
+## Architecture
 
-- Python 3.10 or higher
-- An Elsevier/Scopus API Key (You can request one [here](https://dev.elsevier.com/)).
-- Optional: Scopus Institutional Token (for full abstract retrieval).
+```mermaid
+graph TD
+    A[LLM Agent] -->|MCP Protocol| B(Scholar MCP Server)
+    B -->|Search / Query| C{Database Router}
+    C -->|Primary| D[Scopus API]
+    C -->|Fallback| E[OpenAlex API]
+    C -->|DOI Resolver| F[Unpaywall API]
+    D --> G{Access Verification}
+    E --> G
+    F --> G
+    G -->|Open Access| H[Memory Buffer Download]
+    G -->|Closed Access| I[Inject Human-in-the-Loop Prompt]
+    H --> J[PyMuPDF Visual Renderer]
+    H --> K[PyPDF Text Extractor]
+    J --> L[Return Context to LLM]
+    K --> L
+    I --> L
+```
 
-## ⚙️ Installation
+## Installation
 
-1. **Clone the Directory:**
-   Navigate into the project folder.
-   ```bash
-   cd scholar_mcp
-   ```
+### Prerequisites
+- Python 3.10+
+- [Elsevier Developer Portal Account](https://dev.elsevier.com/) (for Scopus allocation)
 
-2. **Setup the Virtual Environment:**
-   Create a virtual environment and install dependencies.
-   ```bash
-   python -m venv venv
-   # On Windows
-   venv\Scripts\activate
-   # On macOS/Linux
-   source venv/bin/activate
-   
-   pip install httpx mcp pypdf beautifulsoup4 python-dotenv
-   ```
+### Setup
 
-3. **Configure Environment Variables:**
-   Rename or copy `.env.example` to `.env` in the root directory and add your keys securely:
-   ```env
-   SCOPUS_API_KEY=your_scopus_api_key_here
-   SCOPUS_INST_TOKEN=your_institutional_token_here
-   ```
+1. **Clone the repository**
+```bash
+git clone https://github.com/mlintangmz2765/Scholar-MCP.git
+cd Scholar-MCP
+```
 
-## 🚀 Configuration (MCP Clients)
+2. **Initialize Environment**
+```bash
+python -m venv venv
+# Windows
+.\venv\Scripts\activate
+# Unix/macOS
+source venv/bin/activate
+```
 
-To use this server, you need an MCP-capable client. Provide the client with the absolute path to your Python virtual environment and the main server file (`server.py`).
+3. **Install Dependencies**
+```bash
+pip install -r requirements.txt
+```
 
-### Example for `Claude Desktop` / `Gemini CLI`
-Add the following to your MCP configuration file (typically `claude_desktop_config.json` or `mcp_config.json`):
+4. **Environment Configuration**
+Copy the template and inject your credentials:
+```bash
+cp .env.example .env
+```
+Ensure the following variables are defined in `.env`:
+- `SCOPUS_API_KEY`: Requisite for basic metadata queries.
+- `SCOPUS_INST_TOKEN` *(Optional)*: Required for full abstract retrievals via Scopus.
+- `CONTACT_EMAIL`: Required by OpenAlex/Unpaywall for polite-pool API routing.
 
+## Configuration (MCP Clients)
+
+Configure your target MCP Client (e.g., Claude Desktop, Cursor, Gemini CLI) by pointing to the virtual environment binary and the `server.py` entrypoint.
+
+**Example `mcp_config.json`:**
 ```json
 {
   "mcpServers": {
     "scholar-mcp": {
-      "command": "C:/path/to/scholar_mcp/venv/Scripts/python.exe",
+      "command": "/absolute/path/to/scholar_mcp/venv/bin/python",
       "args": [
-        "C:/path/to/scholar_mcp/server.py"
+        "/absolute/path/to/scholar_mcp/server.py"
       ],
       "env": {
-        "SCOPUS_API_KEY": "your_scopus_api_key_here"
+        "SCOPUS_API_KEY": "your_scopus_api_key_here",
+        "SCOPUS_INST_TOKEN": "your_optional_inst_token",
+        "CONTACT_EMAIL": "your_email@domain.com"
       }
     }
   }
 }
 ```
 
-*Note: Replace `C:/path/to/` with the actual absolute path to where you stored the repository.*
+## API / Tool Definitions
 
-## 🧰 Available MCP Tools
+The server automatically registers the following tools to the connected MCP Client:
 
-Once connected, your AI will have access to the following tools:
+| Tool | Signature | Description |
+|------|-----------|-------------|
+| `search_papers_tool` | `(query: str, limit: int = 5, use_scopus: bool = True)` | Retrieves paper metadata. Defaults to Scopus; toggle `use_scopus=False` to force OpenAlex lookup. |
+| `get_paper_details_tool` | `(paper_id: str)` | Fetches granular metadata, full abstracts, and resolves Open Access status via Scopus. |
+| `get_unpaywall_link_tool` | `(doi: str)` | Checks the Unpaywall database using a DOI to locate free institutional or pre-print PDF paths. |
+| `get_full_text_tool` | `(url: str)` | Downloads an Open Access URL into a memory buffer and returns raw unstructured text. |
+| `get_full_text_visual_tool`| `(url: str, max_pages: int = 3)` | Streams an OA PDF into a high-fidelity image sequence directly to the AI's Vision pipeline. |
 
-- `search_papers_tool(query: str, limit: int = 5, use_scopus: bool = True)`
-  Returns a list of matching academic papers. Defaults to Scopus, but the AI is instructed to toggle `use_scopus=False` if it specifically hunts for Open Access PDFs.
-  
-- `get_paper_details_tool(paper_id: str)`
-  Retrieves deep metadata, full abstracts, and Open Access statuses for a specific ID. (Smart prompts are baked in).
+## Development
 
-- `get_full_text_tool(url: str)`
-  Takes an Open Access PDF/HTML URL natively found by the search tools, downloads it into memory buffer, and returns the raw unstructured text.
+- **Formatting:** Ensure adherence to PEP-8.
+- **Server Reloading:** Use standard FastMCP CLI or your client's restart mechanisms to flush cached endpoints.
 
-- `get_unpaywall_link_tool(doi: str)`
-  Checks the Unpaywall database using a DOI to find a legal Open Access PDF link bypassing strict paywalls.
+## Troubleshooting
 
-- `get_full_text_visual_tool(url: str, max_pages: int = 3)`
-  Downloads a PDF and renders the specified number of pages as high-resolution images natively to the AI's multimodal vision engine. Used for analyzing complex diagrams, charts, and mathematical templates.
+- **`HTTP 401 Unauthorized` (Scopus):** Standard developer keys only permit `<view=STANDARD>`. Fetching deep abstracts (`<view=META_ABS>`) requires an institutional token (`SCOPUS_INST_TOKEN`). The server automatically falls back to requesting manual uploads from the user in this scenario.
+- **`HTTP 403 Forbidden` (PDF Extraction):** Occurs when target URLs employ strict Cloudflare/Anti-bot logic (e.g., Emerald Insight). Provide the PDF manually to the LLM.
 
-## 📄 License & Usage
+## License
 
-This project is licensed under the MIT License. Always ensure your AI tool usage respects the Terms of Service for Semantic Scholar, Elsevier Scopus, and OpenAlex. Excessive automated requests may lead to temporary IP blocks by the publishers. Data harvested should primarily be used for non-commercial research purposes.
+MIT License. See [LICENSE](LICENSE) for details.
+
+*Note: Automated scraping of publisher end-points must adhere to the respective Terms of Service of Elsevier, OpenAlex, and Unpaywall. Do not distribute access keys, and strictly adhere to rate limits.*
