@@ -1,7 +1,7 @@
 from mcp.server.fastmcp import FastMCP, Image
 from typing import List, Dict, Any, Optional
 
-from api import search_papers_scopus, get_paper_details_scopus, search_papers_openalex, get_unpaywall_pdf_link
+from api import search_papers_scopus, get_paper_details_scopus, search_papers_openalex, get_unpaywall_pdf_link, get_citations_openalex
 from extractor import extract_text_from_pdf_url, render_pdf_to_images_from_url
 
 mcp = FastMCP("Scholar MCP Server")
@@ -130,6 +130,31 @@ async def get_unpaywall_link_tool(doi: str) -> str:
         return "No Open Access route found on Unpaywall. The paper is strictly behind a paywall."
     except Exception as e:
         return f"Error querying Unpaywall: {str(e)}"
+
+@mcp.tool()
+async def get_citations_tool(paper_id: str, direction: str = "references") -> str:
+    """
+    Tracks lineage by retrieving a paper's citations.
+    Provide a DOI (10.xxx) or OpenAlex ID (Wxxx).
+    Set direction="references" to see who this paper cites.
+    Set direction="citations" to see who cited this paper recently.
+    """
+    try:
+        results = await get_citations_openalex(paper_id, direction, limit=20)
+        if not results:
+            return f"No results found for {direction} of paper {paper_id}."
+            
+        output = [f"Found {len(results)} {direction} for {paper_id}:\n"]
+        for p in results:
+            output.append(f"- [{p['id']}] {p['title']}")
+            output.append(f"  Authors: {', '.join(p['authors']) if isinstance(p['authors'], list) else p['authors']}")
+            output.append(f"  Year: {p.get('year', '')}")
+            output.append(f"  DOI: {p.get('doi', '')}")
+            output.append(f"  OA PDF: {p.get('open_access_pdf') or 'Not Available'}")
+            output.append("")
+        return "\n".join(output)
+    except Exception as e:
+        return f"Error tracking citations: {str(e)}"
 
 if __name__ == "__main__":
     # Provides stdio stream capabilities natively via FastMCP
