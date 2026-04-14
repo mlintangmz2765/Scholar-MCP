@@ -31,6 +31,7 @@ async def search_papers_tool(query: str, limit: int = 5, use_scopus: bool = True
             output.append(f"  Authors: {', '.join(p['authors']) if isinstance(p['authors'], list) else p['authors']}")
             if source == "OpenAlex":
                 output.append(f"  Year: {p.get('year', '')}")
+                output.append(f"  Volume: {p.get('volume', '')}, Issue: {p.get('issue', '')}, Pages: {p.get('pages', '')}")
                 output.append(f"  OA PDF: {p.get('open_access_pdf') or 'Not Available'}")
                 output.append(f"  Snippet: {p.get('abstract_snippet', '')}")
             else:
@@ -64,6 +65,7 @@ async def get_paper_details_tool(paper_id: str) -> str:
             f"Title: {details.get('title')}",
             f"Authors: {', '.join(details.get('authors', []))}",
             f"Publication: {details.get('publicationName')}",
+            f"Volume: {details.get('volume', '')}, Issue: {details.get('issue', '')}, Pages: {details.get('pages', '')}",
             f"Date: {details.get('date')}",
             f"DOI: {details.get('doi')}",
             f"Open Access: {details.get('openAccess')}"
