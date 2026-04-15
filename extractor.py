@@ -28,7 +28,6 @@ async def extract_text_from_pdf_url(url: str) -> str:
     content_type = response.headers.get("content-type", "").lower()
     
     if "pdf" in content_type or url.endswith(".pdf"):
-        # Process as PDF using PyMuPDF (fitz)
         try:
             doc = fitz.open(stream=response.content, filetype="pdf")
             text_blocks = []
@@ -41,9 +40,7 @@ async def extract_text_from_pdf_url(url: str) -> str:
             return f"Error extracting PDF via PyMuPDF: {str(e)}"
     
     elif "html" in content_type:
-        # Process as HTML
         soup = BeautifulSoup(response.text, "html.parser")
-        # Remove script and style elements
         for script_or_style in soup(["script", "style", "nav", "footer", "header"]):
             script_or_style.decompose()
         
@@ -92,7 +89,6 @@ async def render_pdf_to_images_from_url(url: str, max_pages: int = 3) -> list:
     num_pages = min(len(doc), max_pages)
     for i in range(num_pages):
         page = doc.load_page(i)
-        # Render page to an image (Scale by 1.5x for readability)
         mat = fitz.Matrix(1.5, 1.5)
         pix = page.get_pixmap(matrix=mat)
         png_bytes = pix.tobytes("png")

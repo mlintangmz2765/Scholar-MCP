@@ -58,7 +58,6 @@ async def get_paper_details_tool(paper_id: str) -> str:
     Returns formatted detailed text.
     """
     try:
-        # Currently we only implemented detailed lookup for Scopus.
         details = await get_paper_details_scopus(paper_id)
         if "error" in details:
             return (
@@ -77,7 +76,6 @@ async def get_paper_details_tool(paper_id: str) -> str:
             f"Open Access: {details.get('openAccess')}"
         ]
         
-        # Add AI Context Prompt for manual downloads if it's closed access
         if not str(details.get('openAccess')).lower() in ['true', '1', 'yes']:
             output.append("AI Instruction: This paper is CLOSED ACCESS. You cannot use get_full_text_tool for it. If you vitally need the full text, ask the user to manually download the PDF and provide it to you.")
         

@@ -49,7 +49,6 @@ async def search_papers_scopus(query: str, limit: int = 5) -> List[Dict[str, Any
             "date": entry.get("prism:coverDate", ""),
             "doi": entry.get("prism:doi", ""),
             "url": entry.get("prism:url", ""),
-            # Scopus search standard view may not give full abstract, we'll indicate that
             "abstract_available": True if "dc:description" in entry else False,
             "abstract_snippet": entry.get("dc:description", "Abstract snippet not available in standard search. Use get_paper_details for full abstract.")
         })
@@ -235,10 +234,6 @@ async def search_authors_openalex(name: str, institution: str = None, limit: int
     """
     url = "https://api.openalex.org/authors"
     params = {"search": name, "mailto": CONTACT_EMAIL, "per-page": limit}
-    if institution:
-        # We can add an institutions filter if we wanted, but openalex API requires institution IDs.
-        # So we just search by name and filter post-request if needed, or rely on search.
-        pass
         
     async with httpx.AsyncClient() as client:
         res = await client.get(url, params=params)
@@ -267,7 +262,6 @@ async def retrieve_author_works_openalex(author_id: str, limit: int = 15) -> Lis
     Retrieves chronologically sorted works by an author.
     author_id should be an OpenAlex ID (e.g. Wxxx or Axxx).
     """
-    # Just in case we get a full url
     if author_id.startswith("http"):
         author_id = author_id.split("/")[-1]
         
