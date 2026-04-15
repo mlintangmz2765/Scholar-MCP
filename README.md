@@ -31,6 +31,14 @@ A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that g
   - Renders PDF pages as PNG images for direct consumption by Vision-capable LLMs.
   - Ideal for analyzing charts, tables, equations, and layouts that text extraction cannot capture.
 
+- **Citation & Writing Automation**
+  - Automated **BibTeX** generation for LaTeX workflows via CrossRef.
+  - High-precision citation formatting (APA, IEEE, Chicago, etc.) using CrossRef content negotiation.
+
+- **Landscaping & Discovery**
+  - Explore research topics, domains, and trending concepts via OpenAlex.
+  - Efficient batch metadata retrieval for up to 50 DOIs in a single session.
+
 - **Graceful Paywall Handling**
   - Injects meta-instructions to the LLM agent requesting manual document uploads when encountering closed-access content.
 
@@ -43,9 +51,13 @@ graph TD
     C -->|Primary| D[Scopus API]
     C -->|Fallback| E[OpenAlex API]
     C -->|DOI Resolver| F[Unpaywall API]
+    C -->|Citations| P[CrossRef API]
+    
     D --> G{Access Check}
     E --> G
     F --> G
+    P --> G
+    
     G -->|Open Access| H[PDF Buffer Download]
     G -->|Closed Access| I[Human-in-the-Loop Prompt]
     H --> J[PyMuPDF Text Extractor]
@@ -175,19 +187,40 @@ The server registers **18 tools** across 7 categories:
 | Tool                    | Signature                  | Description                                                                      |
 |-------------------------|----------------------------|----------------------------------------------------------------------------------|
 | `search_topics_tool`    | `(query, limit=10)`        | Browse research topics/concepts. Returns fields, domains, and publication volume. |
-| `batch_lookup_tool`     | `(dois: list)`             | Batch-fetch metadata for up to 50 DOIs in a single call.                         |
+| `batch_lookup_tool`        | `(dois: list[str])` | Batch-fetch metadata for multiple DOIs in a single call (max 50).                |
+
+
+## Reliability & Production Parity
+
+Scholar MCP is built for stability and precision in production research workflows, emphasizing data integrity and fault tolerance:
+
+- **Strict Schema Validation**
+  - Powered by **Pydantic** models to enforce strict data contracts for all API responses.
+  - Ensures agents receive structured, predictable data even if upstream schemas drift.
+- **Resilient Network Layer**
+  - **Intelligent Retries**: Integrated `tenacity` decorators with exponential backoff for transient HTTP errors (429, 5xx).
+  - **Fault-Tolerant Concurrency**: Batch operations use `asyncio.gather` with localized exception handling, ensuring a single DOI failure doesn't compromise the entire session.
+- **Production-Grade Observability**
+  - Structured standard-error (`stderr`) logging provides deep visibility into the request lifecycle without polluting the MCP JSON-RPC transport.
+- **Deterministic Verification**
+  - Comprehensive `pytest` suite utilizing `respx` for deterministic API mocking and edge-case simulation without network dependencies.
 
 ## Project Structure
 
-```
+```text
 Scholar-MCP/
-├── server.py          # MCP tool definitions and entry point
-├── api.py             # HTTP clients for Scopus, OpenAlex, and Unpaywall
-├── extractor.py       # PDF/HTML text extraction and visual rendering
-├── requirements.txt   # Python dependencies
-├── .env.example       # Environment variable template
+├── .github/workflows/ # GitHub Actions (CI & Releases)
+├── tests/             # Pytest suite (respx mocked)
+├── server.py          # FastMCP tool entry point
+├── api.py             # API Clients (Scopus, OpenAlex, Unpaywall, CrossRef)
+├── extractor.py       # PDF/HTML Extraction & Rendering
+├── models.py          # Pydantic Data Validation
+├── requirements.txt   # Dependencies
+├── VERSION            # Version tracking (v1.0.0)
 ├── LICENSE            # MIT License
-└── README.md
+├── README.md          # Documentation
+├── .env.example       # Template for API keys
+└── .gitignore         # Git exclusion rules
 ```
 
 ## Troubleshooting

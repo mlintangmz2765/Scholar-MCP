@@ -1,5 +1,14 @@
 from mcp.server.fastmcp import FastMCP, Image
 from typing import List, Dict, Any, Optional
+import logging
+import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stderr)]
+)
+logger = logging.getLogger("scholar_mcp_server")
 
 from api import (
     search_papers_scopus, get_paper_details_scopus, get_paper_details_openalex,
@@ -24,9 +33,11 @@ async def search_papers_tool(query: str, limit: int = 5, use_scopus: bool = True
     Returns a formatted string of results.
     """
     if not query or not query.strip():
+        logger.warning("Empty search query received.")
         return "Error: query cannot be empty."
 
     try:
+        logger.info(f"Searching papers: '{query}' (source: {'Scopus' if use_scopus else 'OpenAlex'}, limit={limit})")
         if use_scopus:
             results = await search_papers_scopus(query, limit)
             source = "Scopus"
@@ -54,6 +65,7 @@ async def search_papers_tool(query: str, limit: int = 5, use_scopus: bool = True
 
         return "\n".join(output)
     except Exception as e:
+        logger.error(f"Error executing search_papers_tool: {e}", exc_info=True)
         return f"Error searching papers: {str(e)}"
 
 @mcp.tool()
@@ -109,6 +121,7 @@ async def get_paper_details_tool(paper_id: str) -> str:
         ])
         return "\n".join(output)
     except Exception as e:
+        logger.error(f"Error executing get_paper_details_tool ({paper_id}): {e}", exc_info=True)
         return f"Error getting details: {str(e)}"
 
 @mcp.tool()
@@ -120,10 +133,21 @@ async def get_full_text_tool(url: str, start_page: int = None, end_page: int = N
     Warning: This can return a very large string.
     """
     try:
+        logger.info(f"Extracting full text from URL: {url} (pages {start_page} to {end_page})")
         text = await extract_text_from_pdf_url(url, start_page=start_page, end_page=end_page)
+        
+        if text.startswith("Error"):
+            return (
+                f"{text}\n\n"
+                "AI Instruction: The document could not be retrieved automatically. It might be blocked by a strict publisher firewall or exceed size limits. "
+                "Do not retry automatically. Please politely ask the user to manually download the PDF and upload it to the chat."
+            )
+            
         return text
     except Exception as e:
+        logger.error(f"Error executing get_full_text_tool ({url}): {e}", exc_info=True)
         return f"Error extracting full text from {url}: {str(e)}"
+
 
 @mcp.tool()
 async def get_full_text_visual_tool(url: str, max_pages: int = 3) -> list:
@@ -333,8 +357,10 @@ async def get_bibtex_tool(doi: str) -> str:
     ready for use in LaTeX documents.
     """
     try:
+        logger.info(f"Generating BibTeX for DOI: {doi}")
         return await get_bibtex_crossref(doi)
     except Exception as e:
+        logger.error(f"Error executing get_bibtex_tool ({doi}): {e}", exc_info=True)
         return f"Error generating BibTeX: {e}"
 
 @mcp.tool()
@@ -375,6 +401,7 @@ async def get_related_works_tool(paper_id: str, limit: int = 10) -> str:
             out.append("")
         return "\n".join(out)
     except Exception as e:
+        logger.error(f"Error executing get_related_works_tool ({paper_id}): {e}", exc_info=True)
         return f"Error finding related works: {e}"
 
 @mcp.tool()

@@ -1,9 +1,16 @@
 import os
 import httpx
-from typing import Dict, Any, List, Optional
+import asyncio
+from typing import Dict, Any, List, Optional, Union
+import logging
 from dotenv import load_dotenv
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception, retry_if_exception_type
+
+from models import PaperMetadata, AuthorProfile, TopicItem, CitationResponse, AuthorWork
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY")
 SCOPUS_INST_TOKEN = os.getenv("SCOPUS_INST_TOKEN")
@@ -11,6 +18,28 @@ CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "developer@example.com")
 
 HTTP_TIMEOUT = 30.0
 
+def _should_retry_exception(exception: Exception) -> bool:
+    """Helper to determine if an exception is retryable (429, 502, 503, 504 or network errors)."""
+    if isinstance(exception, httpx.HTTPStatusError):
+        return exception.response.status_code in (429, 500, 502, 503, 504)
+    if isinstance(exception, (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout)):
+        return True
+    return False
+
+api_retry = retry(
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception(_should_retry_exception),
+    reraise=True
+)
+
+@api_retry
+async def _robust_fetch(url: str, headers: dict = None, params: dict = None, method: str = "GET") -> httpx.Response:
+    """Universal robust HTTP fetcher with baked-in smart retries."""
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
+        response = await client.request(method, url, headers=headers, params=params)
+        response.raise_for_status()
+        return response
 
 def _normalize_doi(doi: str) -> str:
     """Strips common DOI URL prefixes to extract the raw DOI."""
@@ -42,10 +71,12 @@ async def search_papers_scopus(query: str, limit: int = 5) -> List[Dict[str, Any
         "view": "STANDARD"
     }
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        response = await client.get(url, headers=headers, params=params)
-        response.raise_for_status()
+    try:
+        response = await _robust_fetch(url, headers=headers, params=params)
         data = response.json()
+    except Exception as e:
+        logger.error(f"Scopus search failed: {e}")
+        return []
 
     results = []
     entries = data.get("search-results", {}).get("entry", [])
@@ -87,13 +118,15 @@ async def get_paper_details_scopus(scopus_id_or_doi: str) -> Dict[str, Any]:
 
     params = {"view": "META_ABS", "httpAccept": "application/json"}
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        response = await client.get(url, headers=headers, params=params)
-
-        if response.status_code != 200:
-            return {"error": f"Failed to retrieve data. Status code: {response.status_code}", "raw": response.text}
-
+    try:
+        response = await _robust_fetch(url, headers=headers, params=params)
         data = response.json()
+    except httpx.HTTPStatusError as e:
+        logger.warning(f"Scopus HTTP error: {e.response.status_code}")
+        return {"error": f"Failed to retrieve data. Status code: {e.response.status_code}", "raw": e.response.text}
+    except Exception as e:
+        logger.error(f"Scopus request failed: {e}")
+        return {"error": f"Request failed: {str(e)}"}
 
     abstract_retrieval = data.get("abstracts-retrieval-response", {})
     coredata = abstract_retrieval.get("coredata", {})
@@ -141,10 +174,12 @@ async def search_papers_openalex(query: str, limit: int = 5, sort_by: str = "rel
     elif sort_by == "publication_year":
         params["sort"] = "publication_year:desc"
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        response = await client.get(url, params=params)
-        response.raise_for_status()
+    try:
+        response = await _robust_fetch(url, params=params)
         data = response.json()
+    except Exception as e:
+        logger.error(f"OpenAlex search failed: {e}")
+        return []
 
     results = []
     for work in data.get("results", []):
@@ -192,11 +227,13 @@ async def get_paper_details_openalex(openalex_id_or_doi: str) -> Dict[str, Any]:
     else:
         return {"error": f"Unrecognized identifier format: {openalex_id_or_doi}"}
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
-        res = await client.get(url, params={"mailto": CONTACT_EMAIL})
-        if res.status_code != 200:
-            return {"error": f"OpenAlex returned {res.status_code}"}
+    try:
+        res = await _robust_fetch(url, params={"mailto": CONTACT_EMAIL})
         work = res.json()
+    except httpx.HTTPStatusError as e:
+        return {"error": f"OpenAlex returned {e.response.status_code}"}
+    except Exception as e:
+        return {"error": f"General OpenAlex error: {str(e)}"}
 
     abstract = "Abstract not available."
     inv_abstract = work.get("abstract_inverted_index")
@@ -227,10 +264,7 @@ async def get_paper_details_openalex(openalex_id_or_doi: str) -> Dict[str, Any]:
 
 
 async def get_unpaywall_pdf_link(doi: str) -> Dict[str, Any]:
-    """
-    Query Unpaywall API to find Open Access information.
-    Returns all OA locations to mirror unpaywall-mcp capability.
-    """
+    """Query Unpaywall API to find Open Access information."""
     doi = _normalize_doi(doi)
     if not doi:
         return {"error": "No DOI provided"}
@@ -239,17 +273,16 @@ async def get_unpaywall_pdf_link(doi: str) -> Dict[str, Any]:
     params = {"email": CONTACT_EMAIL}
 
     try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            response = await client.get(url, params=params)
-            if response.status_code == 200:
-                data = response.json()
-                return {
-                    "is_oa": data.get("is_oa", False),
-                    "best_oa_location": data.get("best_oa_location"),
-                    "oa_locations": data.get("oa_locations", []),
-                    "title": data.get("title")
-                }
-            return {"error": f"Unpaywall returned HTTP {response.status_code} for DOI: {doi}"}
+        response = await _robust_fetch(url, params=params)
+        data = response.json()
+        return {
+            "is_oa": data.get("is_oa", False),
+            "best_oa_location": data.get("best_oa_location"),
+            "oa_locations": data.get("oa_locations", []),
+            "title": data.get("title")
+        }
+    except httpx.HTTPStatusError as e:
+        return {"error": f"Unpaywall returned HTTP {e.response.status_code} for DOI: {doi}"}
     except Exception as e:
         return {"error": f"Error contacting Unpaywall: {str(e)}"}
 
@@ -259,11 +292,12 @@ async def autocomplete_authors_openalex(name: str, limit: int = 5) -> List[Dict[
     url = "https://api.openalex.org/autocomplete/authors"
     params = {"q": name, "mailto": CONTACT_EMAIL}
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        res = await client.get(url, params=params)
-        if res.status_code != 200:
-            return []
+    try:
+        res = await _robust_fetch(url, params=params)
         data = res.json()
+    except Exception as e:
+        logger.error(f"Author autocomplete failed: {e}")
+        return []
 
     results = []
     for item in data.get("results", [])[:limit]:
@@ -283,23 +317,25 @@ async def search_authors_openalex(name: str, institution: str = None, limit: int
     params: Dict[str, Any] = {"search": name, "mailto": CONTACT_EMAIL, "per-page": limit}
 
     if institution:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            inst_res = await client.get(
-                "https://api.openalex.org/institutions",
+        try:
+            inst_res = await _robust_fetch(
+                "https://api.openalex.org/institutions", 
                 params={"search": institution, "per-page": 1, "mailto": CONTACT_EMAIL}
             )
-            if inst_res.status_code == 200:
-                inst_data = inst_res.json()
-                inst_results = inst_data.get("results", [])
-                if inst_results:
-                    inst_id = inst_results[0].get("id", "").split("/")[-1]
-                    params["filter"] = f"last_known_institutions.id:{inst_id}"
+            inst_data = inst_res.json()
+            inst_results = inst_data.get("results", [])
+            if inst_results:
+                inst_id = inst_results[0].get("id", "").split("/")[-1]
+                params["filter"] = f"last_known_institutions.id:{inst_id}"
+        except Exception as e:
+            logger.warning(f"Institution filter lookup failed, proceeding without it: {e}")
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        res = await client.get(url, params=params)
-        if res.status_code != 200:
-            return []
+    try:
+        res = await _robust_fetch(url, params=params)
         data = res.json()
+    except Exception as e:
+        logger.error(f"Author search failed: {e}")
+        return []
 
     results = []
     for author in data.get("results", []):
@@ -320,10 +356,7 @@ async def search_authors_openalex(name: str, institution: str = None, limit: int
 
 
 async def retrieve_author_works_openalex(author_id: str, limit: int = 15) -> List[Dict[str, Any]]:
-    """
-    Retrieves chronologically sorted works by an author.
-    Accepts OpenAlex author IDs (e.g. A123 or full URL).
-    """
+    """Retrieves chronologically sorted works by an author."""
     if author_id.startswith("http"):
         author_id = author_id.split("/")[-1]
 
@@ -336,10 +369,12 @@ async def retrieve_author_works_openalex(author_id: str, limit: int = 15) -> Lis
         "mailto": CONTACT_EMAIL
     }
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        res = await client.get(url, params=params)
-        res.raise_for_status()
+    try:
+        res = await _robust_fetch(url, params=params)
         data = res.json()
+    except Exception as e:
+        logger.error(f"Retrieve author works failed: {e}")
+        return []
 
     results = []
     for work in data.get("results", []):
@@ -363,11 +398,13 @@ async def get_author_profile_scopus(author_id: str) -> Dict[str, Any]:
     if SCOPUS_INST_TOKEN:
         headers["X-ELS-Insttoken"] = SCOPUS_INST_TOKEN
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        res = await client.get(url, headers=headers)
-        if res.status_code != 200:
-            return {"error": f"Scopus author query failed: HTTP {res.status_code}"}
+    try:
+        res = await _robust_fetch(url, headers=headers)
         data = res.json()
+    except httpx.HTTPStatusError as e:
+        return {"error": f"Scopus author query failed: HTTP {e.response.status_code}"}
+    except Exception as e:
+        return {"error": f"Scopus network failure: {str(e)}"}
 
     author_resp = data.get("author-retrieval-response", [{}])[0]
     profile = author_resp.get("author-profile", {})
@@ -405,21 +442,17 @@ async def search_titles_unpaywall(query: str, is_oa: bool = None, page: int = 1)
     elif is_oa is False:
         params["is_oa"] = "false"
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        res = await client.get(url, params=params)
-        if res.status_code != 200:
-            return {"error": f"Unpaywall search failed: HTTP {res.status_code}"}
-        data = res.json()
-
-    return data
+    try:
+        res = await _robust_fetch(url, params=params)
+        return res.json()
+    except httpx.HTTPStatusError as e:
+        return {"error": f"Unpaywall search failed: HTTP {e.response.status_code}"}
+    except Exception as e:
+        return {"error": f"Unpaywall network failure: {str(e)}"}
 
 
 async def get_citations_openalex(doi_or_id: str, direction: str = "references", limit: int = 20) -> List[Dict[str, Any]]:
-    """
-    Tracks lineage of a paper.
-    direction="references": returns papers that the target paper cited.
-    direction="citations": returns papers that cite the target paper.
-    """
+    """Tracks lineage of a paper (forward/backward citations)."""
     doi_or_id = _normalize_doi(doi_or_id)
 
     if doi_or_id.startswith("10."):
@@ -429,32 +462,32 @@ async def get_citations_openalex(doi_or_id: str, direction: str = "references", 
     else:
         raise ValueError("Citation tracking requires a DOI (e.g., 10.10xx/...) or an OpenAlex ID (e.g., Wxxxx).")
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
-        res = await client.get(resolve_url, params={"mailto": CONTACT_EMAIL})
-        res.raise_for_status()
+    try:
+        res = await _robust_fetch(resolve_url, params={"mailto": CONTACT_EMAIL})
         work_data = res.json()
         openalex_id = (work_data.get("id") or "").split("/")[-1]
+    except Exception as e:
+        logger.error(f"Citation resolution failed: {e}")
+        return []
 
     if not openalex_id:
         return []
 
     url = "https://api.openalex.org/works"
-    if direction == "citations":
-        target_filter = f"cites:{openalex_id}"
-    else:
-        target_filter = f"cited_by:{openalex_id}"
+    target_filter = f"cites:{openalex_id}" if direction == "citations" else f"cited_by:{openalex_id}"
 
-    limit = min(limit, 100)
     params = {
         "filter": target_filter,
-        "per-page": limit,
+        "per-page": min(limit, 100),
         "mailto": CONTACT_EMAIL
     }
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
-        response = await client.get(url, params=params)
-        response.raise_for_status()
+    try:
+        response = await _robust_fetch(url, params=params)
         data = response.json()
+    except Exception as e:
+        logger.error(f"Citation retrieval failed: {e}")
+        return []
 
     results = []
     for work in data.get("results", []):
@@ -470,7 +503,7 @@ async def get_citations_openalex(doi_or_id: str, direction: str = "references", 
 
 
 async def get_bibtex_crossref(doi: str) -> str:
-    """Fetches a BibTeX entry for a DOI via CrossRef content negotiation."""
+    """Fetches a BibTeX entry via CrossRef content negotiation."""
     doi = _normalize_doi(doi)
     if not doi:
         return "Error: No DOI provided."
@@ -479,21 +512,16 @@ async def get_bibtex_crossref(doi: str) -> str:
     headers = {"Accept": "application/x-bibtex"}
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
-            res = await client.get(url, headers=headers)
-            if res.status_code == 200:
-                return res.text.strip()
-            return f"Error: CrossRef returned HTTP {res.status_code} for DOI: {doi}"
+        res = await _robust_fetch(url, headers=headers)
+        return res.text.strip()
+    except httpx.HTTPStatusError as e:
+        return f"Error: CrossRef returned HTTP {e.response.status_code} for DOI: {doi}"
     except Exception as e:
         return f"Error fetching BibTeX: {str(e)}"
 
 
 async def format_citation_crossref(doi: str, style: str = "apa") -> str:
-    """
-    Formats a citation for a DOI using CrossRef/DOI content negotiation.
-    Supported styles: apa, ieee, chicago-author-date, harvard-cite-them-right,
-    vancouver, modern-language-association, turabian-fullnote-bibliography.
-    """
+    """Formats a citation via CrossRef/DOI content negotiation."""
     doi = _normalize_doi(doi)
     if not doi:
         return "Error: No DOI provided."
@@ -502,20 +530,16 @@ async def format_citation_crossref(doi: str, style: str = "apa") -> str:
     headers = {"Accept": f"text/x-bibliography; style={style}"}
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
-            res = await client.get(url, headers=headers)
-            if res.status_code == 200:
-                return res.text.strip()
-            return f"Error: Citation service returned HTTP {res.status_code} for DOI: {doi} with style: {style}"
+        res = await _robust_fetch(url, headers=headers)
+        return res.text.strip()
+    except httpx.HTTPStatusError as e:
+        return f"Error: Citation service returned HTTP {e.response.status_code} for DOI: {doi} with style: {style}"
     except Exception as e:
         return f"Error formatting citation: {str(e)}"
 
 
 async def get_related_works_openalex(paper_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """
-    Gets related/similar works for a paper via OpenAlex's related_works field.
-    Accepts DOI or OpenAlex ID (Wxxxx).
-    """
+    """Gets related/similar works via OpenAlex's related_works field."""
     paper_id = _normalize_doi(paper_id)
 
     if paper_id.startswith("10."):
@@ -525,11 +549,12 @@ async def get_related_works_openalex(paper_id: str, limit: int = 10) -> List[Dic
     else:
         return []
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
-        res = await client.get(url, params={"mailto": CONTACT_EMAIL})
-        if res.status_code != 200:
-            return []
+    try:
+        res = await _robust_fetch(url, params={"mailto": CONTACT_EMAIL})
         work = res.json()
+    except Exception as e:
+        logger.error(f"Failed to fetch base paper for related works: {e}")
+        return []
 
     related_ids = work.get("related_works", [])[:limit]
     if not related_ids:
@@ -542,11 +567,12 @@ async def get_related_works_openalex(paper_id: str, limit: int = 10) -> List[Dic
         "mailto": CONTACT_EMAIL
     }
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
-        res = await client.get("https://api.openalex.org/works", params=params)
-        if res.status_code != 200:
-            return []
+    try:
+        res = await _robust_fetch("https://api.openalex.org/works", params=params)
         data = res.json()
+    except Exception as e:
+        logger.error(f"Failed to retrieve related works batch: {e}")
+        return []
 
     results = []
     for w in data.get("results", []):
@@ -562,51 +588,52 @@ async def get_related_works_openalex(paper_id: str, limit: int = 10) -> List[Dic
     return results
 
 
+async def _fetch_openalex_chunk(chunk: List[str]) -> List[Dict[str, Any]]:
+    doi_filter = "|".join(f"https://doi.org/{d}" for d in chunk)
+    params = {"filter": f"doi:{doi_filter}", "per-page": len(chunk), "mailto": CONTACT_EMAIL}
+    res = await _robust_fetch("https://api.openalex.org/works", params=params)
+    return res.json().get("results", [])
+
 async def batch_get_papers_openalex(dois: List[str]) -> List[Dict[str, Any]]:
-    """
-    Batch-fetch metadata for multiple DOIs at once via OpenAlex filter piping.
-    Maximum 50 DOIs per call.
-    """
+    """Batch-fetch metadata for multiple DOIs using chunked concurrency."""
     normalized = [_normalize_doi(d) for d in dois if _normalize_doi(d)]
     if not normalized:
         return []
 
-    normalized = normalized[:50]
-
-    doi_filter = "|".join(f"https://doi.org/{d}" for d in normalized)
-    params = {
-        "filter": f"doi:{doi_filter}",
-        "per-page": len(normalized),
-        "mailto": CONTACT_EMAIL
-    }
-
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
-        res = await client.get("https://api.openalex.org/works", params=params)
-        if res.status_code != 200:
-            return []
-        data = res.json()
-
+    chunks = [normalized[i:i + 15] for i in range(0, len(normalized), 15)]
     results = []
-    for work in data.get("results", []):
-        oa = work.get("open_access", {})
-        results.append({
-            "id": work.get("id"),
-            "title": work.get("title", ""),
-            "authors": [a.get("author", {}).get("display_name") for a in work.get("authorships", [])],
-            "year": work.get("publication_year", ""),
-            "doi": work.get("doi", ""),
-            "cited_by_count": work.get("cited_by_count", 0),
-            "is_oa": oa.get("is_oa", False),
-            "open_access_pdf": oa.get("oa_url")
-        })
+
+    tasks = [_fetch_openalex_chunk(chunk) for chunk in chunks]
+    chunked_results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    for r_chunk in chunked_results:
+        if isinstance(r_chunk, Exception):
+            logger.error(f"Error fetching batch chunk: {r_chunk}")
+            continue
+        
+        for work in r_chunk:
+            oa = work.get("open_access", {})
+            authors = [a.get("author", {}).get("display_name") for a in work.get("authorships", [])]
+            try:
+                meta = PaperMetadata(
+                    id=work.get("id"),
+                    title=work.get("title") or "Unknown Title",
+                    authors=[a for a in authors if a],
+                    year=work.get("publication_year"),
+                    doi=work.get("doi"),
+                    cited_by_count=work.get("cited_by_count", 0),
+                    is_oa=oa.get("is_oa", False),
+                    open_access_pdf=oa.get("oa_url")
+                )
+                results.append(meta.model_dump())
+            except Exception as e:
+                logger.warning(f"Pydantic validation failed for batch item: {e}")
+                
     return results
 
 
 async def search_topics_openalex(query: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """
-    Search OpenAlex topics/concepts for a given keyword.
-    Useful for mapping a research landscape and discovering subfields.
-    """
+    """Search OpenAlex topics/concepts for a given keyword."""
     url = "https://api.openalex.org/topics"
     params = {
         "search": query,
@@ -614,32 +641,35 @@ async def search_topics_openalex(query: str, limit: int = 10) -> List[Dict[str, 
         "mailto": CONTACT_EMAIL
     }
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        res = await client.get(url, params=params)
-        if res.status_code != 200:
-            return []
+    try:
+        res = await _robust_fetch(url, params=params)
         data = res.json()
+    except Exception as e:
+        logger.error(f"Search topics failed: {e}")
+        return []
 
     results = []
     for topic in data.get("results", []):
-        results.append({
-            "id": topic.get("id"),
-            "display_name": topic.get("display_name", ""),
-            "subfield": topic.get("subfield", {}).get("display_name", ""),
-            "field": topic.get("field", {}).get("display_name", ""),
-            "domain": topic.get("domain", {}).get("display_name", ""),
-            "works_count": topic.get("works_count", 0),
-            "cited_by_count": topic.get("cited_by_count", 0),
-            "description": topic.get("description", ""),
-        })
+        try:
+            item = TopicItem(
+                id=topic.get("id"),
+                display_name=topic.get("display_name") or "",
+                subfield=topic.get("subfield", {}).get("display_name") or "",
+                field=topic.get("field", {}).get("display_name") or "",
+                domain=topic.get("domain", {}).get("display_name") or "",
+                works_count=topic.get("works_count", 0),
+                cited_by_count=topic.get("cited_by_count", 0),
+                description=topic.get("description", "")
+            )
+            results.append(item.model_dump())
+        except Exception as e:
+            logger.warning(f"Validation failed for topic item: {e}")
+            
     return results
 
 
 async def search_author_by_orcid_openalex(orcid: str) -> Dict[str, Any]:
-    """
-    Look up an author by ORCID via OpenAlex.
-    Accepts raw ORCID (0000-0002-xxxx) or full URL (https://orcid.org/0000-0002-xxxx).
-    """
+    """Look up an author by ORCID via OpenAlex."""
     if not orcid.startswith("https://"):
         orcid = f"https://orcid.org/{orcid}"
 
@@ -649,11 +679,13 @@ async def search_author_by_orcid_openalex(orcid: str) -> Dict[str, Any]:
         "mailto": CONTACT_EMAIL
     }
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        res = await client.get(url, params=params)
-        if res.status_code != 200:
-            return {"error": f"OpenAlex returned HTTP {res.status_code}"}
+    try:
+        res = await _robust_fetch(url, params=params)
         data = res.json()
+    except httpx.HTTPStatusError as e:
+        return {"error": f"OpenAlex returned HTTP {e.response.status_code}"}
+    except Exception as e:
+        return {"error": f"Failed to retrieve author by ORCID: {str(e)}"}
 
     authors = data.get("results", [])
     if not authors:
@@ -663,14 +695,19 @@ async def search_author_by_orcid_openalex(orcid: str) -> Dict[str, Any]:
     affil = author.get("last_known_institutions", [{}])
     last_inst = affil[0].get("display_name", "Unknown") if isinstance(affil, list) and affil else "Unknown"
 
-    return {
-        "id": author.get("id"),
-        "display_name": author.get("display_name"),
-        "orcid": author.get("orcid"),
-        "works_count": author.get("works_count"),
-        "cited_by_count": author.get("cited_by_count"),
-        "h_index": author.get("summary_stats", {}).get("h_index"),
-        "i10_index": author.get("summary_stats", {}).get("i10_index"),
-        "last_institution": last_inst,
-        "x_concepts": [c.get("display_name") for c in author.get("x_concepts", [])[:5]]
-    }
+    try:
+        profile = AuthorProfile(
+            id=author.get("id"),
+            display_name=author.get("display_name") or "Unknown",
+            orcid=author.get("orcid"),
+            works_count=author.get("works_count", 0),
+            cited_by_count=author.get("cited_by_count", 0),
+            h_index=author.get("summary_stats", {}).get("h_index", 0) or 0,
+            i10_index=author.get("summary_stats", {}).get("i10_index", 0) or 0,
+            last_institution=last_inst,
+            x_concepts=[c.get("display_name") for c in author.get("x_concepts", [])[:5]]
+        )
+        return profile.model_dump()
+    except Exception as e:
+        logger.error(f"Author profile validation failed: {e}")
+        return {"error": "Failed to parse author profile."}
