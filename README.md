@@ -122,7 +122,7 @@ Configure your MCP client (Claude Desktop, Cursor, Gemini CLI, etc.) by pointing
 
 ## Tools
 
-The server registers **15 tools** across 6 categories:
+The server registers **18 tools** across 7 categories:
 
 ### Paper Discovery
 
@@ -139,6 +139,7 @@ The server registers **15 tools** across 6 categories:
 |-----------------------------------|------------------------------------|--------------------------------------------------------------------------------|
 | `autocomplete_authors_tool`       | `(name, limit=5)`                  | Rapidly disambiguate author names and resolve OpenAlex Author IDs.             |
 | `search_authors_tool`             | `(name, institution=None, limit=5)`| Deep author profiles: h-index, i10-index, ORCID, affiliations, concepts.       |
+| `search_author_by_orcid_tool`     | `(orcid)`                          | Look up an author directly by ORCID (raw or URL format).                       |
 | `retrieve_author_works_tool`      | `(author_id, limit=15)`           | Chronologically sorted publications for a given OpenAlex author.               |
 | `get_author_profile_scopus_tool`  | `(author_id)`                      | Fetch precise Scopus-sourced h-index, citation counts, and affiliation.        |
 
@@ -168,6 +169,13 @@ The server registers **15 tools** across 6 categories:
 | Tool                    | Signature | Description                                                            |
 |-------------------------|-----------|------------------------------------------------------------------------|
 | `get_unpaywall_link_tool`| `(doi)`  | Resolve a DOI to all available OA locations via Unpaywall.             |
+
+### Research Discovery
+
+| Tool                    | Signature                  | Description                                                                      |
+|-------------------------|----------------------------|----------------------------------------------------------------------------------|
+| `search_topics_tool`    | `(query, limit=10)`        | Browse research topics/concepts. Returns fields, domains, and publication volume. |
+| `batch_lookup_tool`     | `(dois: list)`             | Batch-fetch metadata for up to 50 DOIs in a single call.                         |
 
 ## Project Structure
 

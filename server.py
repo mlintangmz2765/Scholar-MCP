@@ -6,7 +6,8 @@ from api import (
     get_author_profile_scopus, search_papers_openalex, get_citations_openalex,
     autocomplete_authors_openalex, search_authors_openalex,
     retrieve_author_works_openalex, get_unpaywall_pdf_link, search_titles_unpaywall,
-    get_bibtex_crossref, format_citation_crossref, get_related_works_openalex
+    get_bibtex_crossref, format_citation_crossref, get_related_works_openalex,
+    batch_get_papers_openalex, search_topics_openalex, search_author_by_orcid_openalex
 )
 from extractor import extract_text_from_pdf_url, render_pdf_to_images_from_url
 
@@ -375,6 +376,84 @@ async def get_related_works_tool(paper_id: str, limit: int = 10) -> str:
         return "\n".join(out)
     except Exception as e:
         return f"Error finding related works: {e}"
+
+@mcp.tool()
+async def batch_lookup_tool(dois: list[str]) -> str:
+    """
+    Batch-fetch metadata for multiple DOIs in a single call.
+    Accepts a list of DOIs (up to 50). Returns title, authors, year, citation count, and OA status for each.
+    Useful for processing reference lists or comparing multiple papers at once.
+    """
+    if not dois:
+        return "Error: provide at least one DOI."
+    try:
+        results = await batch_get_papers_openalex(dois)
+        if not results:
+            return "No papers found for the given DOIs."
+        out = [f"Found {len(results)} papers from {len(dois)} DOIs:\n"]
+        for r in results:
+            authors = ', '.join(r['authors'][:3]) if isinstance(r['authors'], list) else str(r['authors'])
+            if isinstance(r['authors'], list) and len(r['authors']) > 3:
+                authors += f" et al. ({len(r['authors'])} total)"
+            out.append(f"- [{r['year']}] {r['title']}")
+            out.append(f"  Authors: {authors}")
+            out.append(f"  DOI: {r.get('doi', '')}")
+            out.append(f"  Cited by: {r['cited_by_count']} | OA: {r['is_oa']}")
+            out.append(f"  PDF: {r.get('open_access_pdf') or 'Not Available'}")
+            out.append("")
+        return "\n".join(out)
+    except Exception as e:
+        return f"Error in batch lookup: {e}"
+
+@mcp.tool()
+async def search_topics_tool(query: str, limit: int = 10) -> str:
+    """
+    Browse and discover research topics/concepts for a given keyword.
+    Returns topic names, their parent fields, domains, and publication volume.
+    Useful for mapping a research landscape, finding subfields, or identifying trending areas.
+    """
+    if not query or not query.strip():
+        return "Error: query cannot be empty."
+    try:
+        results = await search_topics_openalex(query, limit)
+        if not results:
+            return f"No topics found for '{query}'."
+        out = [f"Found {len(results)} topics for '{query}':\n"]
+        for t in results:
+            out.append(f"- {t['display_name']}")
+            out.append(f"  Hierarchy: {t['domain']} → {t['field']} → {t['subfield']}")
+            out.append(f"  Works: {t['works_count']:,} | Citations: {t['cited_by_count']:,}")
+            if t.get('description'):
+                out.append(f"  Description: {t['description'][:120]}..." if len(t.get('description', '')) > 120 else f"  Description: {t['description']}")
+            out.append("")
+        return "\n".join(out)
+    except Exception as e:
+        return f"Error searching topics: {e}"
+
+@mcp.tool()
+async def search_author_by_orcid_tool(orcid: str) -> str:
+    """
+    Look up an author directly by their ORCID identifier.
+    Accepts raw ORCID (e.g. 0000-0002-9322-3515) or full URL (https://orcid.org/0000-0002-9322-3515).
+    Returns the full author profile including h-index, works count, and affiliations.
+    """
+    try:
+        r = await search_author_by_orcid_openalex(orcid)
+        if "error" in r:
+            return r["error"]
+        out = [
+            f"Author Profile (via ORCID)",
+            f"Name: {r['display_name']}",
+            f"ORCID: {r['orcid']}",
+            f"OpenAlex ID: {r['id']}",
+            f"Institution: {r['last_institution']}",
+            f"Works: {r['works_count']} | Cited by: {r['cited_by_count']}",
+            f"H-Index: {r['h_index']} | i10-Index: {r['i10_index']}",
+            f"Top Concepts: {', '.join(r['x_concepts'])}"
+        ]
+        return "\n".join(out)
+    except Exception as e:
+        return f"Error looking up ORCID: {e}"
 
 if __name__ == "__main__":
     mcp.run()

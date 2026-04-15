@@ -561,3 +561,116 @@ async def get_related_works_openalex(paper_id: str, limit: int = 10) -> List[Dic
         })
     return results
 
+
+async def batch_get_papers_openalex(dois: List[str]) -> List[Dict[str, Any]]:
+    """
+    Batch-fetch metadata for multiple DOIs at once via OpenAlex filter piping.
+    Maximum 50 DOIs per call.
+    """
+    normalized = [_normalize_doi(d) for d in dois if _normalize_doi(d)]
+    if not normalized:
+        return []
+
+    normalized = normalized[:50]
+
+    doi_filter = "|".join(f"https://doi.org/{d}" for d in normalized)
+    params = {
+        "filter": f"doi:{doi_filter}",
+        "per-page": len(normalized),
+        "mailto": CONTACT_EMAIL
+    }
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
+        res = await client.get("https://api.openalex.org/works", params=params)
+        if res.status_code != 200:
+            return []
+        data = res.json()
+
+    results = []
+    for work in data.get("results", []):
+        oa = work.get("open_access", {})
+        results.append({
+            "id": work.get("id"),
+            "title": work.get("title", ""),
+            "authors": [a.get("author", {}).get("display_name") for a in work.get("authorships", [])],
+            "year": work.get("publication_year", ""),
+            "doi": work.get("doi", ""),
+            "cited_by_count": work.get("cited_by_count", 0),
+            "is_oa": oa.get("is_oa", False),
+            "open_access_pdf": oa.get("oa_url")
+        })
+    return results
+
+
+async def search_topics_openalex(query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Search OpenAlex topics/concepts for a given keyword.
+    Useful for mapping a research landscape and discovering subfields.
+    """
+    url = "https://api.openalex.org/topics"
+    params = {
+        "search": query,
+        "per-page": min(limit, 50),
+        "mailto": CONTACT_EMAIL
+    }
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        res = await client.get(url, params=params)
+        if res.status_code != 200:
+            return []
+        data = res.json()
+
+    results = []
+    for topic in data.get("results", []):
+        results.append({
+            "id": topic.get("id"),
+            "display_name": topic.get("display_name", ""),
+            "subfield": topic.get("subfield", {}).get("display_name", ""),
+            "field": topic.get("field", {}).get("display_name", ""),
+            "domain": topic.get("domain", {}).get("display_name", ""),
+            "works_count": topic.get("works_count", 0),
+            "cited_by_count": topic.get("cited_by_count", 0),
+            "description": topic.get("description", ""),
+        })
+    return results
+
+
+async def search_author_by_orcid_openalex(orcid: str) -> Dict[str, Any]:
+    """
+    Look up an author by ORCID via OpenAlex.
+    Accepts raw ORCID (0000-0002-xxxx) or full URL (https://orcid.org/0000-0002-xxxx).
+    """
+    if not orcid.startswith("https://"):
+        orcid = f"https://orcid.org/{orcid}"
+
+    url = "https://api.openalex.org/authors"
+    params = {
+        "filter": f"orcid:{orcid}",
+        "mailto": CONTACT_EMAIL
+    }
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        res = await client.get(url, params=params)
+        if res.status_code != 200:
+            return {"error": f"OpenAlex returned HTTP {res.status_code}"}
+        data = res.json()
+
+    authors = data.get("results", [])
+    if not authors:
+        return {"error": f"No author found for ORCID: {orcid}"}
+
+    author = authors[0]
+    affil = author.get("last_known_institutions", [{}])
+    last_inst = affil[0].get("display_name", "Unknown") if isinstance(affil, list) and affil else "Unknown"
+
+    return {
+        "id": author.get("id"),
+        "display_name": author.get("display_name"),
+        "orcid": author.get("orcid"),
+        "works_count": author.get("works_count"),
+        "cited_by_count": author.get("cited_by_count"),
+        "h_index": author.get("summary_stats", {}).get("h_index"),
+        "i10_index": author.get("summary_stats", {}).get("i10_index"),
+        "last_institution": last_inst,
+        "x_concepts": [c.get("display_name") for c in author.get("x_concepts", [])[:5]]
+    }
