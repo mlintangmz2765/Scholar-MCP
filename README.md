@@ -3,6 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-FastMCP-brightgreen)](https://modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Registry](https://img.shields.io/badge/Registry-Verified-blue)](https://registry.modelcontextprotocol.io/)
 
 A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that gives AI agents comprehensive access to scientific literature. It acts as middleware between LLMs and academic databases — **Scopus**, **OpenAlex**, and **Unpaywall** — providing automated paper discovery, author analytics, metadata extraction, citation tracking, and multimodal PDF rendering.
 
@@ -93,8 +94,8 @@ python -m venv venv
 # Unix/macOS
 source venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install in editable mode
+pip install -e .
 
 # Configure environment
 cp .env.example .env
@@ -210,11 +211,14 @@ Scholar MCP is built for stability and precision in production research workflow
 ```text
 Scholar-MCP/
 ├── .github/workflows/ # GitHub Actions (CI & Releases)
+├── scripts/           # Automation & Validation scripts
 ├── tests/             # Pytest suite (respx mocked)
 ├── server.py          # FastMCP tool entry point
 ├── api.py             # API Clients (Scopus, OpenAlex, Unpaywall, CrossRef)
 ├── extractor.py       # PDF/HTML Extraction & Rendering
 ├── models.py          # Pydantic Data Validation
+├── server.json        # MCP Registry Manifest
+├── pyproject.toml     # Python packaging configuration
 ├── requirements.txt   # Dependencies
 ├── VERSION            # Version tracking (v1.0.0)
 ├── LICENSE            # MIT License
@@ -249,3 +253,5 @@ MIT License. See [LICENSE](LICENSE) for details.
 ---
 
 > **Disclaimer:** Automated querying of publisher APIs must comply with the respective Terms of Service of Elsevier, OpenAlex, and Unpaywall. Do not distribute API keys. Adhere to all applicable rate limits.
+
+mcp-name: io.github.mlintangmz2765/scholar
