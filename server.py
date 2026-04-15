@@ -2,10 +2,10 @@ from mcp.server.fastmcp import FastMCP, Image
 from typing import List, Dict, Any, Optional
 
 from api import (
-    search_papers_scopus, get_paper_details_scopus, get_author_profile_scopus,
-    search_papers_openalex, get_citations_openalex, autocomplete_authors_openalex, 
-    search_authors_openalex, retrieve_author_works_openalex,
-    get_unpaywall_pdf_link, search_titles_unpaywall
+    search_papers_scopus, get_paper_details_scopus, get_paper_details_openalex,
+    get_author_profile_scopus, search_papers_openalex, get_citations_openalex,
+    autocomplete_authors_openalex, search_authors_openalex,
+    retrieve_author_works_openalex, get_unpaywall_pdf_link, search_titles_unpaywall
 )
 from extractor import extract_text_from_pdf_url, render_pdf_to_images_from_url
 
@@ -20,6 +20,9 @@ async def search_papers_tool(query: str, limit: int = 5, use_scopus: bool = True
     Set use_scopus=False to use OpenAlex which guarantees Open Access PDF links but might have less robust abstracts in standard search.
     Returns a formatted string of results.
     """
+    if not query or not query.strip():
+        return "Error: query cannot be empty."
+
     try:
         if use_scopus:
             results = await search_papers_scopus(query, limit)
@@ -44,7 +47,7 @@ async def search_papers_tool(query: str, limit: int = 5, use_scopus: bool = True
                 output.append(f"  Date: {p.get('date', '')}")
                 output.append(f"  DOI: {p.get('doi', '')}")
                 output.append(f"  Abstract Available: {p.get('abstract_available', False)}")
-            output.append("") # empty line
+            output.append("")
 
         return "\n".join(output)
     except Exception as e:
@@ -58,6 +61,24 @@ async def get_paper_details_tool(paper_id: str) -> str:
     Returns formatted detailed text.
     """
     try:
+        is_openalex = paper_id.startswith("W") or paper_id.startswith("https://openalex.org/")
+
+        if is_openalex:
+            details = await get_paper_details_openalex(paper_id)
+            if "error" in details:
+                return f"Error: {details['error']}"
+            output = [
+                f"Title: {details.get('title')}",
+                f"Authors: {', '.join(details.get('authors', []))}",
+                f"Year: {details.get('year')}",
+                f"DOI: {details.get('doi')}",
+                f"Open Access: {details.get('openAccess')}",
+                f"OA PDF: {details.get('open_access_pdf') or 'None'}",
+                f"Cited By: {details.get('cited_by_count', 0)}",
+                f"\nAbstract:\n{details.get('abstract')}"
+            ]
+            return "\n".join(output)
+
         details = await get_paper_details_scopus(paper_id)
         if "error" in details:
             return (
@@ -75,10 +96,10 @@ async def get_paper_details_tool(paper_id: str) -> str:
             f"DOI: {details.get('doi')}",
             f"Open Access: {details.get('openAccess')}"
         ]
-        
+
         if not str(details.get('openAccess')).lower() in ['true', '1', 'yes']:
             output.append("AI Instruction: This paper is CLOSED ACCESS. You cannot use get_full_text_tool for it. If you vitally need the full text, ask the user to manually download the PDF and provide it to you.")
-        
+
         output.extend([
             f"PDF Link Hint: {details.get('pdf_link_hint') or 'None'}",
             f"\nAbstract:\n{details.get('abstract')}"
@@ -116,7 +137,7 @@ async def get_full_text_visual_tool(url: str, max_pages: int = 3) -> list:
         for p in pages:
             output.append(f"--- Page {p['page']} Visually Rendered ---")
             output.append(Image(data=p["data"], format="png"))
-            
+
         return output
     except Exception as e:
         return [f"Error rendering visual PDF from {url}: {str(e)}"]
@@ -149,11 +170,14 @@ async def get_citations_tool(paper_id: str, direction: str = "references") -> st
     Set direction="references" to see who this paper cites.
     Set direction="citations" to see who cited this paper recently.
     """
+    if direction not in ("references", "citations"):
+        return f"Error: direction must be 'references' or 'citations', got '{direction}'."
+
     try:
         results = await get_citations_openalex(paper_id, direction, limit=20)
         if not results:
             return f"No results found for {direction} of paper {paper_id}."
-            
+
         output = [f"Found {len(results)} {direction} for {paper_id}:\n"]
         for p in results:
             output.append(f"- [{p['id']}] {p['title']}")
@@ -165,10 +189,6 @@ async def get_citations_tool(paper_id: str, direction: str = "references") -> st
         return "\n".join(output)
     except Exception as e:
         return f"Error tracking citations: {str(e)}"
-
-# ===============================================
-# OPENALEX AUTHOR TOOLS
-# ===============================================
 
 @mcp.tool()
 async def autocomplete_authors_tool(name: str, limit: int = 5) -> str:
@@ -228,10 +248,6 @@ async def retrieve_author_works_tool(author_id: str, limit: int = 15) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-# ===============================================
-# SCOPUS AUTHOR TOOLS
-# ===============================================
-
 @mcp.tool()
 async def get_author_profile_scopus_tool(author_id: str) -> str:
     """
@@ -254,10 +270,6 @@ async def get_author_profile_scopus_tool(author_id: str) -> str:
     except Exception as e:
         return f"Error pulling Scopus author profile: {e}"
 
-# ===============================================
-# UNPAYWALL NATIVE TOOLS
-# ===============================================
-
 @mcp.tool()
 async def search_titles_unpaywall_tool(query: str, is_oa: bool = None) -> str:
     """
@@ -271,7 +283,7 @@ async def search_titles_unpaywall_tool(query: str, is_oa: bool = None) -> str:
         results = data.get("results", [])
         if not results:
             return "No titles found in Unpaywall."
-            
+
         out = [f"Found {len(results)} results in Unpaywall:\n"]
         for r in results:
             resp = r.get("response", {})
@@ -296,19 +308,18 @@ async def fetch_pdf_text_unpaywall_tool(doi: str) -> str:
         info = await get_unpaywall_pdf_link(doi)
         if "error" in info:
             return info["error"]
-            
+
         best = info.get("best_oa_location")
         if not best:
             return f"Unpaywall confirms no Open Access PDF exists for DOI: {doi}."
-            
+
         pdf_url = best.get("url_for_pdf") or best.get("url")
         if not pdf_url:
             return f"Found OA location but no direct PDF URL for DOI: {doi}."
-            
+
         return await extract_text_from_pdf_url(pdf_url)
     except Exception as e:
         return f"Error fetching and extracting Unpaywall text: {e}"
 
 if __name__ == "__main__":
-    # Provides stdio stream capabilities natively via FastMCP
     mcp.run()
