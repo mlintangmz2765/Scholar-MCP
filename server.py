@@ -130,10 +130,16 @@ async def get_unpaywall_link_tool(doi: str) -> str:
     If found, returns the URL. If not, returns that it's behind a strict paywall.
     """
     try:
-        link = await get_unpaywall_pdf_link(doi)
-        if link:
-            return f"Success! Found legal Open Access PDF via Unpaywall: {link}"
-        return "No Open Access route found on Unpaywall. The paper is strictly behind a paywall."
+        info = await get_unpaywall_pdf_link(doi)
+        if "error" in info:
+            return info["error"]
+        if not info.get("is_oa"):
+            return "No Open Access route found on Unpaywall. The paper is strictly behind a paywall."
+        best = info.get("best_oa_location")
+        if best:
+            pdf_url = best.get("url_for_pdf") or best.get("url") or ""
+            return f"Success! Found legal Open Access PDF via Unpaywall: {pdf_url}"
+        return "Unpaywall reports OA but no direct link was found."
     except Exception as e:
         return f"Error querying Unpaywall: {str(e)}"
 

@@ -64,8 +64,6 @@ async def render_pdf_to_images_from_url(url: str, max_pages: int = 3) -> list:
     Useful for feeding into Vision Models.
     Raises an error if not a PDF.
     """
-    import fitz # PyMuPDF
-    import io
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

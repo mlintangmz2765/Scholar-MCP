@@ -4,84 +4,102 @@
 [![Model Context Protocol](https://img.shields.io/badge/MCP-FastMCP-brightgreen)](https://modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Model Context Protocol (MCP) server designed to provide Local and Cloud AI agents with comprehensive access to scientific literature. The server acts as a middleware between LLMs and academic databases (Scopus, OpenAlex, Unpaywall), providing automated paper discovery, metadata extraction, and multimodal Open Access (OA) PDF rendering capabilities.
+A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that gives AI agents comprehensive access to scientific literature. It acts as middleware between LLMs and academic databases — **Scopus**, **OpenAlex**, and **Unpaywall** — providing automated paper discovery, author analytics, metadata extraction, citation tracking, and multimodal PDF rendering.
 
 ## Features
 
-- **Multi-Source Discovery Pipeline**
-  - **Scopus:** Primary metadata retrieval engine (requires API Key).
-  - **OpenAlex:** Robust fallback for Open Access routing and deep search parsing.
-  - **Unpaywall Integration:** Automated DOI resolution to institutional OA repositories.
-- **On-the-Fly Document Extraction**
-  - High-speed buffer extraction for unstructured text (`pypdf` / `BeautifulSoup4`).
-  - Native Multimodal Vision rendering via `PyMuPDF` (captures charts, tables, and latex logic).
-- **Graceful Paywall Degradation**
-  - Fallback mechanisms designed for human-in-the-loop workflows. Injects meta-instructions to the LLM agent to request manual document uploads when encountering `401 Unauthorized` responses from proprietary publishers.
+- **Multi-Source Paper Discovery**
+  - **Scopus** — Primary metadata engine with support for advanced Boolean syntax (requires API key).
+  - **OpenAlex** — Open-access-first search with full abstract reconstruction.
+  - **Unpaywall** — Native title search and DOI-to-PDF resolution across global OA repositories.
+
+- **Author Analytics & Disambiguation**
+  - Rapid author name autocomplete via OpenAlex for disambiguation.
+  - Deep author profiles: h-index, i10-index, ORCID, institutional history, and top research concepts.
+  - Scopus Author Retrieval for precise Elsevier-sourced citation metrics.
+  - Chronologically sorted publication lists per author.
+
+- **Citation Tracking**
+  - Forward citations (who cited this paper) and backward references (who this paper cites) via OpenAlex.
+
+- **Full-Text Extraction**
+  - High-fidelity text extraction from OA PDFs using [PyMuPDF](https://pymupdf.readthedocs.io/) with accurate multi-column layout handling.
+  - HTML fallback extraction via BeautifulSoup for non-PDF resources.
+  - All-in-one DOI → Unpaywall → PDF → text pipeline in a single tool call.
+
+- **Multimodal Vision Rendering**
+  - Renders PDF pages as PNG images for direct consumption by Vision-capable LLMs.
+  - Ideal for analyzing charts, tables, equations, and layouts that text extraction cannot capture.
+
+- **Graceful Paywall Handling**
+  - Injects meta-instructions to the LLM agent requesting manual document uploads when encountering closed-access content.
 
 ## Architecture
 
 ```mermaid
 graph TD
     A[LLM Agent] -->|MCP Protocol| B(Scholar MCP Server)
-    B -->|Search / Query| C{Database Router}
+    B --> C{Database Router}
     C -->|Primary| D[Scopus API]
     C -->|Fallback| E[OpenAlex API]
     C -->|DOI Resolver| F[Unpaywall API]
-    D --> G{Access Verification}
+    D --> G{Access Check}
     E --> G
     F --> G
-    G -->|Open Access| H[Memory Buffer Download]
-    G -->|Closed Access| I[Inject Human-in-the-Loop Prompt]
-    H --> J[PyMuPDF Visual Renderer]
-    H --> K[PyPDF Text Extractor]
+    G -->|Open Access| H[PDF Buffer Download]
+    G -->|Closed Access| I[Human-in-the-Loop Prompt]
+    H --> J[PyMuPDF Text Extractor]
+    H --> K[PyMuPDF Vision Renderer]
     J --> L[Return Context to LLM]
     K --> L
     I --> L
+    B --> M{Author Router}
+    M -->|Profile| N[OpenAlex Authors API]
+    M -->|Metrics| O[Scopus Author API]
+    N --> L
+    O --> L
 ```
 
 ## Installation
 
 ### Prerequisites
+
 - Python 3.10+
-- [Elsevier Developer Portal Account](https://dev.elsevier.com/) (for Scopus allocation)
+- [Elsevier Developer API Key](https://dev.elsevier.com/) (for Scopus features)
 
 ### Setup
 
-1. **Clone the repository**
 ```bash
+# Clone the repository
 git clone https://github.com/mlintangmz2765/Scholar-MCP.git
 cd Scholar-MCP
-```
 
-2. **Initialize Environment**
-```bash
+# Create and activate virtual environment
 python -m venv venv
 # Windows
 .\venv\Scripts\activate
 # Unix/macOS
 source venv/bin/activate
-```
 
-3. **Install Dependencies**
-```bash
+# Install dependencies
 pip install -r requirements.txt
-```
 
-4. **Environment Configuration**
-Copy the template and inject your credentials:
-```bash
+# Configure environment
 cp .env.example .env
 ```
-Ensure the following variables are defined in `.env`:
-- `SCOPUS_API_KEY`: Requisite for basic metadata queries.
-- `SCOPUS_INST_TOKEN` *(Optional)*: Required for full abstract retrievals via Scopus.
-- `CONTACT_EMAIL`: Required by OpenAlex/Unpaywall for polite-pool API routing.
 
-## Configuration (MCP Clients)
+### Environment Variables
 
-Configure your target MCP Client (e.g., Claude Desktop, Cursor, Gemini CLI) by pointing to the virtual environment binary and the `server.py` entrypoint.
+| Variable            | Required | Description                                                       |
+|---------------------|----------|-------------------------------------------------------------------|
+| `SCOPUS_API_KEY`    | Yes      | Elsevier API key for Scopus search and author retrieval.          |
+| `SCOPUS_INST_TOKEN` | No       | Institutional token for full abstract access via Scopus.          |
+| `CONTACT_EMAIL`     | Yes      | Email for OpenAlex/Unpaywall polite-pool API routing.             |
 
-**Example `mcp_config.json`:**
+## Configuration
+
+Configure your MCP client (Claude Desktop, Cursor, Gemini CLI, etc.) by pointing to the virtual environment Python binary and `server.py`:
+
 ```json
 {
   "mcpServers": {
@@ -91,7 +109,7 @@ Configure your target MCP Client (e.g., Claude Desktop, Cursor, Gemini CLI) by p
         "/absolute/path/to/Scholar-MCP/server.py"
       ],
       "env": {
-        "SCOPUS_API_KEY": "your_scopus_api_key_here",
+        "SCOPUS_API_KEY": "your_scopus_api_key",
         "SCOPUS_INST_TOKEN": "your_optional_inst_token",
         "CONTACT_EMAIL": "your_email@domain.com"
       }
@@ -100,37 +118,85 @@ Configure your target MCP Client (e.g., Claude Desktop, Cursor, Gemini CLI) by p
 }
 ```
 
-## API / Tool Definitions
+> **Note:** On Windows, use `venv/Scripts/python.exe` instead of `venv/bin/python`.
 
-The server automatically registers the following tools to the connected MCP Client:
+## Tools
 
-| Tool | Signature | Description |
-|------|-----------|-------------|
-| `search_papers_tool` | `(query: str, limit: int = 5, use_scopus: bool = True)` | Retrieves paper metadata. Supports standard terms or Scopus Advanced Boolean syntax (e.g. `TITLE(...) AND PUBYEAR > YYYY`). Toggle `use_scopus=False` to force OpenAlex lookup. |
-| `get_paper_details_tool` | `(paper_id: str)` | Fetches granular metadata, full abstracts, and resolves Open Access status via Scopus. |
-| `get_unpaywall_link_tool` | `(doi: str)` | Checks the Unpaywall database using a DOI to locate all free institutional or pre-print PDF paths. |
-| `get_citations_tool` | `(paper_id: str, direction: str = "references")` | Tracks lineage. Fetch bibliography (references) or forward citations via OpenAlex natively. |
-| `autocomplete_authors_tool` | `(name: str, limit: int = 5)` | Rapidly search OpenAlex to disambiguate and identify the correct Author ID. |
-| `search_authors_tool` | `(name: str, institution: str, limit: int = 5)` | Deep search for an author's profile (h-index, concepts, latest affiliations) via OpenAlex. |
-| `retrieve_author_works_tool` | `(author_id: str, limit: int = 15)` | Retrieve chronologically sorted publications for an OpenAlex author ID. |
-| `get_author_profile_scopus_tool`| `(author_id: str)` | Fetch precise academic metrics (h-index, total citations) from Elsevier Scopus using a Scopus Author ID. |
-| `search_titles_unpaywall_tool` | `(query: str, is_oa: bool)` | Natively search Unpaywall's global database via paper titles. Set `is_oa=True` for strictly free papers. |
-| `get_full_text_tool` | `(url: str)` | Downloads an Open Access PDF down to unstructured text, accurately preserving layout using `PyMuPDF`. |
-| `fetch_pdf_text_unpaywall_tool`| `(doi: str)` | All-in-one bypass: Takes a DOI, resolves best PDF on Unpaywall, and extracts text seamlessly using `PyMuPDF`. |
-| `get_full_text_visual_tool`| `(url: str, max_pages: int = 3)` | Streams an OA PDF into a high-fidelity image sequence directly to the AI's Vision pipeline. |
+The server registers the following tools to the connected MCP client:
 
-## Development
+### Paper Discovery
 
-- **Formatting:** Ensure adherence to PEP-8.
-- **Server Reloading:** Use standard FastMCP CLI or your client's restart mechanisms to flush cached endpoints.
+| Tool                           | Signature                                                      | Description                                                                                                   |
+|--------------------------------|----------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| `search_papers_tool`           | `(query, limit=5, use_scopus=True)`                            | Search papers via Scopus (supports advanced Boolean syntax) or OpenAlex.                                      |
+| `get_paper_details_tool`       | `(paper_id)`                                                   | Fetch full metadata and abstract for a paper by Scopus ID or DOI.                                             |
+| `search_titles_unpaywall_tool` | `(query, is_oa=None)`                                          | Search Unpaywall's database directly by title. Set `is_oa=True` for strictly OA results.                      |
+
+### Author Analytics
+
+| Tool                              | Signature                          | Description                                                                    |
+|-----------------------------------|------------------------------------|--------------------------------------------------------------------------------|
+| `autocomplete_authors_tool`       | `(name, limit=5)`                  | Rapidly disambiguate author names and resolve OpenAlex Author IDs.             |
+| `search_authors_tool`             | `(name, institution=None, limit=5)`| Deep author profiles: h-index, i10-index, ORCID, affiliations, concepts.       |
+| `retrieve_author_works_tool`      | `(author_id, limit=15)`           | Chronologically sorted publications for a given OpenAlex author.               |
+| `get_author_profile_scopus_tool`  | `(author_id)`                      | Fetch precise Scopus-sourced h-index, citation counts, and affiliation.        |
+
+### Citation Tracking
+
+| Tool               | Signature                              | Description                                                              |
+|--------------------|----------------------------------------|--------------------------------------------------------------------------|
+| `get_citations_tool`| `(paper_id, direction="references")`  | Retrieve forward citations or backward references via OpenAlex.          |
+
+### Full-Text & PDF
+
+| Tool                            | Signature               | Description                                                                              |
+|---------------------------------|-------------------------|------------------------------------------------------------------------------------------|
+| `get_full_text_tool`            | `(url)`                 | Extract text from an OA PDF or HTML page using PyMuPDF.                                  |
+| `get_full_text_visual_tool`     | `(url, max_pages=3)`    | Render PDF pages as images for Vision-capable LLMs.                                      |
+| `fetch_pdf_text_unpaywall_tool` | `(doi)`                 | All-in-one: resolve DOI via Unpaywall → download PDF → extract text.                     |
+
+### Open Access Resolution
+
+| Tool                    | Signature | Description                                                            |
+|-------------------------|-----------|------------------------------------------------------------------------|
+| `get_unpaywall_link_tool`| `(doi)`  | Resolve a DOI to all available OA locations via Unpaywall.             |
+
+## Project Structure
+
+```
+Scholar-MCP/
+├── server.py          # MCP tool definitions and entry point
+├── api.py             # HTTP clients for Scopus, OpenAlex, and Unpaywall
+├── extractor.py       # PDF/HTML text extraction and visual rendering
+├── requirements.txt   # Python dependencies
+├── .env.example       # Environment variable template
+├── LICENSE            # MIT License
+└── README.md
+```
 
 ## Troubleshooting
 
-- **`HTTP 401 Unauthorized` (Scopus):** Standard developer keys only permit `<view=STANDARD>`. Fetching deep abstracts (`<view=META_ABS>`) requires an institutional token (`SCOPUS_INST_TOKEN`). The server automatically falls back to requesting manual uploads from the user in this scenario.
-- **`HTTP 403 Forbidden` (PDF Extraction):** Occurs when target URLs employ strict Cloudflare/Anti-bot logic (e.g., Emerald Insight). Provide the PDF manually to the LLM.
+| Symptom | Cause | Resolution |
+|---------|-------|------------|
+| `HTTP 401` from Scopus | Standard API keys lack `META_ABS` view access. | Set `SCOPUS_INST_TOKEN` or use OpenAlex as fallback. |
+| `HTTP 403` on PDF download | Publisher anti-bot protection (Cloudflare, DataDome). | Provide the PDF manually to the LLM. |
+| Empty Unpaywall results | Paper is behind a strict paywall with no OA copies. | Request the PDF from the author via ResearchGate or institutional access. |
+| `SCOPUS_API_KEY is not set` | Missing environment variable. | Ensure `.env` is configured or pass via MCP client `env` block. |
+
+## Contributing
+
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feature/my-feature`).
+3. Commit your changes (`git commit -m 'feat: add new capability'`).
+4. Push to the branch (`git push origin feature/my-feature`).
+5. Open a Pull Request.
+
+Please ensure all code follows PEP 8 conventions.
 
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
 
-*Note: Automated scraping of publisher end-points must adhere to the respective Terms of Service of Elsevier, OpenAlex, and Unpaywall. Do not distribute access keys, and strictly adhere to rate limits.*
+---
+
+> **Disclaimer:** Automated querying of publisher APIs must comply with the respective Terms of Service of Elsevier, OpenAlex, and Unpaywall. Do not distribute API keys. Adhere to all applicable rate limits.
