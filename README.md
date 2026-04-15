@@ -5,43 +5,34 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Registry](https://img.shields.io/badge/Registry-Verified-blue)](https://registry.modelcontextprotocol.io/)
 
-A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that gives AI agents comprehensive access to scientific literature. It acts as middleware between LLMs and academic databases — **Scopus**, **OpenAlex**, and **Unpaywall** — providing automated paper discovery, author analytics, metadata extraction, citation tracking, and multimodal PDF rendering.
+A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server providing structured access to scientific literature databases. It serves as a unified interface for **Scopus**, **OpenAlex**, and **Unpaywall**, enabling AI agents to perform systematic paper discovery, author disambiguation, citation lineage tracking, and multimodal Content extraction.
 
-## Features
+## Core Capabilities
 
-- **Multi-Source Paper Discovery**
-  - **Scopus** — Primary metadata engine with support for advanced Boolean syntax (requires API key).
-  - **OpenAlex** — Open-access-first search with full abstract reconstruction.
-  - **Unpaywall** — Native title search and DOI-to-PDF resolution across global OA repositories.
+- **Unified Literature Search**
+  - **Scopus Integration** — Targeted metadata retrieval via advanced Boolean syntax (requires API key).
+  - **OpenAlex Integration** — Broad search across 250M+ works with abstract reconstruction.
+  - **Unpaywall Resolution** — DOI-to-PDF cross-referencing across global Open Access repositories.
 
-- **Author Analytics & Disambiguation**
-  - Rapid author name autocomplete via OpenAlex for disambiguation.
-  - Deep author profiles: h-index, i10-index, ORCID, institutional history, and top research concepts.
-  - Scopus Author Retrieval for precise Elsevier-sourced citation metrics.
-  - Chronologically sorted publication lists per author.
+- **Author Identification & Metrics**
+  - Instant author disambiguation and ID resolution via OpenAlex autocomplete.
+  - Comprehensive profiles: H-index, i10-index, institutional affiliation history, and ORCID linkage.
+  - Precision metrics from Elsevier (Scopus) for verified publication counts.
 
-- **Citation Tracking**
-  - Forward citations (who cited this paper) and backward references (who this paper cites) via OpenAlex.
+- **Citation Lineage Tracking**
+  - Map research evolution through forward citations (citing works) and backward references (cited works).
 
-- **Full-Text Extraction**
-  - High-fidelity text extraction from OA PDFs using [PyMuPDF](https://pymupdf.readthedocs.io/) with accurate multi-column layout handling.
-  - HTML fallback extraction via BeautifulSoup for non-PDF resources.
-  - All-in-one DOI → Unpaywall → PDF → text pipeline in a single tool call.
+- **Structured & Multimodal Extraction**
+  - **Text Extraction** — Layout-aware parsing of OA PDFs using [PyMuPDF](https://pymupdf.readthedocs.io/).
+  - **Vision Rendering** — Page-by-page PNG rendering for LLM-based analysis of charts, tables, and equations.
+  - **HTML Fallbacks** — Extraction from web-based research resources via BeautifulSoup.
 
-- **Multimodal Vision Rendering**
-  - Renders PDF pages as PNG images for direct consumption by Vision-capable LLMs.
-  - Ideal for analyzing charts, tables, equations, and layouts that text extraction cannot capture.
+- **Topic Mapping & Field Analysis**
+  - Concepts and domain hierarchy discovery to map research landscapes.
+  - Batch metadata retrieval for high-throughput literature processing (up to 50 DOIs/request).
 
-- **Citation & Writing Automation**
-  - Automated **BibTeX** generation for LaTeX workflows via CrossRef.
-  - High-precision citation formatting (APA, IEEE, Chicago, etc.) using CrossRef content negotiation.
-
-- **Landscaping & Discovery**
-  - Explore research topics, domains, and trending concepts via OpenAlex.
-  - Efficient batch metadata retrieval for up to 50 DOIs in a single session.
-
-- **Graceful Paywall Handling**
-  - Injects meta-instructions to the LLM agent requesting manual document uploads when encountering closed-access content.
+- **Access Management & Fallbacks**
+  - Automated detection of closed-access content with human-in-the-loop instructions for manual uploads.
 
 ## Architecture
 
@@ -128,6 +119,48 @@ Add the following to your configuration file (e.g., `claude_desktop_config.json`
 }
 ```
 
+## Quick Start & Examples
+
+Once configured, your AI agent can perform complex research workflows. Below are representative examples of tool inputs and structured outputs.
+
+### 1. Literature Discovery (Scopus)
+**Prompt**: *"Find recent papers about 'Transformer architectures' published after 2022 using Scopus."*
+
+**Tool Call**: `search_papers_tool(query="TITLE-ABS-KEY(Transformer architectures) AND PUBYEAR > 2022", limit=3)`
+
+**Output**:
+```text
+Found 3 papers via Scopus:
+- [SCOPUS_ID:85184...] Attention is All You Need? A Survey of Transformer Variants
+  Authors: Smith, J., Doe, A.
+  Date: 2024-01-15 | DOI: 10.1016/j.artint.2023.104012
+```
+
+### 2. Multimodal Content Analysis
+**Prompt**: *"I need to see the diagram for the neural network architecture on page 3 of this URL."*
+
+**Tool Call**: `get_full_text_visual_tool(url="https://arxiv.org/pdf/1706.03762.pdf", max_pages=3)`
+
+**Output**:
+- `[Text]` "Successfully rendered 3 pages visually..."
+- `[Image]` (PNG data of page 1)
+- `[Image]` (PNG data of page 2)
+- `[Image]` (PNG data of page 3 - containing the architecture diagram)
+
+### 3. Research Topic Mapping
+**Prompt**: *"Help me understand the subfields and domains related to 'Generative AI'."*
+
+**Tool Call**: `search_topics_tool(query="Generative AI")`
+
+**Output**:
+```text
+Found 1 topics for 'Generative AI':
+- Artificial Intelligence
+  Hierarchy: Computer Science → Artificial Intelligence → Machine Learning
+  Works: 12,450 | Citations: 450,210
+  Description: A field of computer science that focuses on creating systems capable of generating...
+```
+
 ## Tools
 
 The server registers **18 tools** across 7 categories:
@@ -146,7 +179,7 @@ The server registers **18 tools** across 7 categories:
 | Tool                              | Signature                          | Description                                                                    |
 |-----------------------------------|------------------------------------|--------------------------------------------------------------------------------|
 | `autocomplete_authors_tool`       | `(name, limit=5)`                  | Rapidly disambiguate author names and resolve OpenAlex Author IDs.             |
-| `search_authors_tool`             | `(name, institution=None, limit=5)`| Deep author profiles: h-index, i10-index, ORCID, affiliations, concepts.       |
+| `search_authors_tool`             | `(name, institution=None, limit=5)`| Detailed bibliometric profiles: H-index, i10-index, ORCID, and research concepts. |
 | `search_author_by_orcid_tool`     | `(orcid)`                          | Look up an author directly by ORCID (raw or URL format).                       |
 | `retrieve_author_works_tool`      | `(author_id, limit=15)`           | Chronologically sorted publications for a given OpenAlex author.               |
 | `get_author_profile_scopus_tool`  | `(author_id)`                      | Fetch precise Scopus-sourced h-index, citation counts, and affiliation.        |
@@ -178,7 +211,7 @@ The server registers **18 tools** across 7 categories:
 |-------------------------|-----------|------------------------------------------------------------------------|
 | `get_unpaywall_link_tool`| `(doi)`  | Resolve a DOI to all available OA locations via Unpaywall.             |
 
-### Research Discovery
+### Topic Mapping & Batch Analysis
 
 | Tool                    | Signature                  | Description                                                                      |
 |-------------------------|----------------------------|----------------------------------------------------------------------------------|
@@ -186,20 +219,27 @@ The server registers **18 tools** across 7 categories:
 | `batch_lookup_tool`        | `(dois: list[str])` | Batch-fetch metadata for multiple DOIs in a single call (max 50).                |
 
 
-## Reliability & Production Parity
+## Technical Design & Reliability
 
-Scholar MCP is built for stability and precision in production research workflows, emphasizing data integrity and fault tolerance:
+Scholar MCP is engineered for precision and fault tolerance in high-stakes research environments, utilizing several layers of protection to ensure data integrity:
 
-- **Strict Schema Validation**
-  - Powered by **Pydantic** models to enforce strict data contracts for all API responses.
-  - Ensures agents receive structured, predictable data even if upstream schemas drift.
-- **Resilient Network Layer**
-  - **Intelligent Retries**: Integrated `tenacity` decorators with exponential backoff for transient HTTP errors (429, 5xx).
-  - **Fault-Tolerant Concurrency**: Batch operations use `asyncio.gather` with localized exception handling, ensuring a single DOI failure doesn't compromise the entire session.
-- **Production-Grade Observability**
-  - Structured standard-error (`stderr`) logging provides deep visibility into the request lifecycle without polluting the MCP JSON-RPC transport.
-- **Deterministic Verification**
-  - Comprehensive `pytest` suite utilizing `respx` for deterministic API mocking and edge-case simulation without network dependencies.
+- **Strict Data Contracts (Pydantic)**
+  - All upstream API responses are validated against **Pydantic** models before being returned to the agent.
+  - Ensures a predictable, type-safe interface even if upstream database schemas change.
+
+- **Fault-Tolerant Networking (Tenacity)**
+  - Integrated **Exponential Backoff** using `tenacity` for transient HTTP errors (429, 5xx).
+  - Configurable rate-limit awareness for Elsevier and OpenAlex "polite pool" routing.
+
+- **Resource Safety & Concurrency**
+  - **Context-Managed Extractors**: Automatic cleanup of PDF buffers and file descriptors.
+  - **Isolated Concurrency**: Batch operations utilize `asyncio.gather` with localized exception handling to prevent session-wide failures.
+
+- **System Observability**
+  - Structured standard-error (`stderr`) logging provides execution visibility during the tool lifecycle without interfering with the MCP JSON-RPC protocol.
+
+- **Automated Verification**
+  - Comprehensive test suite leveraging **respx** for deterministic API mocking, ensuring 100% coverage of edge cases without network externalites.
 
 ## Project Structure
 
