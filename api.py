@@ -28,7 +28,6 @@ async def search_papers_scopus(query: str, limit: int = 5) -> List[Dict[str, Any
     params = {
         "query": query,
         "count": limit,
-        # 'view': 'COMPLETE' might require special entitlement, 'STANDARD' is safer.
         "view": "STANDARD"
     }
     
@@ -40,7 +39,6 @@ async def search_papers_scopus(query: str, limit: int = 5) -> List[Dict[str, Any
     results = []
     entries = data.get("search-results", {}).get("entry", [])
     for entry in entries:
-        # Some fields might be absent
         results.append({
             "id": entry.get("dc:identifier", ""),
             "title": entry.get("dc:title", ""),
@@ -62,24 +60,18 @@ async def get_paper_details_scopus(scopus_id_or_doi: str) -> Dict[str, Any]:
     if not SCOPUS_API_KEY:
         raise ValueError("SCOPUS_API_KEY is not set.")
 
-    # Scopus API allows fetching abstract by scopus_id
-    # Endpoint: https://api.elsevier.com/content/abstract/scopus_id/{scopus_id}
-    # Or by DOI: /content/abstract/doi/{doi}
-
     headers = {
         "Accept": "application/json"
     }
     if SCOPUS_INST_TOKEN:
         headers["X-ELS-Insttoken"] = SCOPUS_INST_TOKEN
     
-    # Check if doi or scopus id
     if "SCOPUS_ID:" in scopus_id_or_doi:
         identifier = scopus_id_or_doi.split(":")[-1]
         url = f"https://api.elsevier.com/content/abstract/scopus_id/{identifier}"
     elif scopus_id_or_doi.startswith("10."):  # DOI
         url = f"https://api.elsevier.com/content/abstract/doi/{scopus_id_or_doi}"
     else:
-        # Clean potential formats
         identifier = scopus_id_or_doi.replace("SCOPUS_ID:", "").replace("scopus_id:", "")
         url = f"https://api.elsevier.com/content/abstract/scopus_id/{identifier}"
 
@@ -93,7 +85,6 @@ async def get_paper_details_scopus(scopus_id_or_doi: str) -> Dict[str, Any]:
 
         data = response.json()
         
-    # Extract robust metadata
     abstract_retrieval = data.get("abstracts-retrieval-response", {})
     coredata = abstract_retrieval.get("coredata", {})
     
@@ -101,7 +92,6 @@ async def get_paper_details_scopus(scopus_id_or_doi: str) -> Dict[str, Any]:
     abstract = coredata.get("dc:description", "Abstract not available.")
     doi = coredata.get("prism:doi", "")
     open_access = coredata.get("openaccessFlag", False)
-    # Get links for pdf or full text
     links = coredata.get("link", [])
     pdf_link = None
     for link in links:
@@ -145,7 +135,6 @@ async def search_papers_openalex(query: str, limit: int = 5) -> List[Dict[str, A
         oa_info = work.get("open_access", {})
         oa_url = oa_info.get("oa_url")
         
-        # OpenAlex uses inverted abstract, reconstruct it:
         abstract = "Abstract not available/not parsed here."
         inv_abstract = work.get("abstract_inverted_index")
         if inv_abstract:

@@ -45,7 +45,6 @@ async def extract_text_from_pdf_url(url: str) -> str:
             script_or_style.decompose()
         
         text = soup.get_text(separator='\n')
-        # clean up empty lines
         lines = (line.strip() for line in text.splitlines())
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
         text = '\n'.join(chunk for chunk in chunks if chunk)
