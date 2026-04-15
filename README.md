@@ -129,7 +129,7 @@ The server registers the following tools to the connected MCP client:
 | Tool                           | Signature                                                      | Description                                                                                                   |
 |--------------------------------|----------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
 | `search_papers_tool`           | `(query, limit=5, use_scopus=True)`                            | Search papers via Scopus (supports advanced Boolean syntax) or OpenAlex.                                      |
-| `get_paper_details_tool`       | `(paper_id)`                                                   | Fetch full metadata and abstract for a paper by Scopus ID or DOI.                                             |
+| `get_paper_details_tool`       | `(paper_id)`                                                   | Fetch full metadata and abstract by Scopus ID, DOI, or OpenAlex ID (with automatic routing).                 |
 | `search_titles_unpaywall_tool` | `(query, is_oa=None)`                                          | Search Unpaywall's database directly by title. Set `is_oa=True` for strictly OA results.                      |
 
 ### Author Analytics
