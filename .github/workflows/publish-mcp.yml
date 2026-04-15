@@ -27,8 +27,9 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/
         env:
-          SCOPUS_API_KEY: ${{ secrets.SCOPUS_API_KEY }}
-          CONTACT_EMAIL: ${{ secrets.CONTACT_EMAIL }}
+          SCOPUS_API_KEY: "dummy_for_testing"
+          CONTACT_EMAIL: "dummy@example.com"
+          PYTHONPATH: .
 
   publish:
     needs: validate-and-test
