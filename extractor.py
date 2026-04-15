@@ -19,11 +19,12 @@ BROWSER_HEADERS = {
 MAX_PDF_SIZE_MB = 50
 
 
-async def extract_text_from_pdf_url(url: str, max_chars: int = 50000) -> str:
+async def extract_text_from_pdf_url(url: str, max_chars: int = 50000, start_page: int = None, end_page: int = None) -> str:
     """
     Downloads a PDF from a URL into memory and extracts text.
     Fallback to HTML text extraction if it isn't a PDF.
     Truncates output to max_chars to prevent context overflow.
+    start_page/end_page: 1-indexed page range for selective extraction.
     """
     async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
         response = await client.get(url, headers=BROWSER_HEADERS)
@@ -34,15 +35,24 @@ async def extract_text_from_pdf_url(url: str, max_chars: int = 50000) -> str:
     if "pdf" in content_type or url.endswith(".pdf"):
         try:
             doc = fitz.open(stream=response.content, filetype="pdf")
+            total_pages = len(doc)
+
+            pg_start = max(0, (start_page or 1) - 1)
+            pg_end = min(total_pages, end_page or total_pages)
+
             text_blocks = []
-            for i in range(len(doc)):
+            for i in range(pg_start, pg_end):
                 page = doc.load_page(i)
                 text_blocks.append(f"--- Page {i+1} ---\n" + page.get_text("text", sort=True))
             full_text = "\n\n".join(text_blocks)
 
+            header = ""
+            if start_page or end_page:
+                header = f"[Extracted pages {pg_start+1}-{pg_end} of {total_pages}]\n\n"
+
             if len(full_text) > max_chars:
-                return full_text[:max_chars] + f"\n\n[...truncated, {len(full_text) - max_chars} characters omitted. Total: {len(full_text)} chars across {len(doc)} pages]"
-            return full_text
+                return header + full_text[:max_chars] + f"\n\n[...truncated, {len(full_text) - max_chars} characters omitted. Total: {len(full_text)} chars across {pg_end - pg_start} pages]"
+            return header + full_text
         except Exception as e:
             return f"Error extracting PDF via PyMuPDF: {str(e)}"
 

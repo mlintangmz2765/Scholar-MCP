@@ -124,15 +124,22 @@ async def get_paper_details_scopus(scopus_id_or_doi: str) -> Dict[str, Any]:
     }
 
 
-async def search_papers_openalex(query: str, limit: int = 5) -> List[Dict[str, Any]]:
-    """Search using OpenAlex, deeply integrated with Open Access PDFs."""
+async def search_papers_openalex(query: str, limit: int = 5, sort_by: str = "relevance") -> List[Dict[str, Any]]:
+    """
+    Search using OpenAlex, deeply integrated with Open Access PDFs.
+    sort_by: 'relevance' (default), 'cited_by_count', 'publication_year'.
+    """
     limit = min(limit, 100)
     url = "https://api.openalex.org/works"
-    params = {
+    params: Dict[str, Any] = {
         "search": query,
         "per-page": limit,
         "mailto": CONTACT_EMAIL
     }
+    if sort_by == "cited_by_count":
+        params["sort"] = "cited_by_count:desc"
+    elif sort_by == "publication_year":
+        params["sort"] = "publication_year:desc"
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         response = await client.get(url, params=params)
@@ -460,3 +467,97 @@ async def get_citations_openalex(doi_or_id: str, direction: str = "references", 
             "open_access_pdf": work.get("open_access", {}).get("oa_url")
         })
     return results
+
+
+async def get_bibtex_crossref(doi: str) -> str:
+    """Fetches a BibTeX entry for a DOI via CrossRef content negotiation."""
+    doi = _normalize_doi(doi)
+    if not doi:
+        return "Error: No DOI provided."
+
+    url = f"https://doi.org/{doi}"
+    headers = {"Accept": "application/x-bibtex"}
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
+            res = await client.get(url, headers=headers)
+            if res.status_code == 200:
+                return res.text.strip()
+            return f"Error: CrossRef returned HTTP {res.status_code} for DOI: {doi}"
+    except Exception as e:
+        return f"Error fetching BibTeX: {str(e)}"
+
+
+async def format_citation_crossref(doi: str, style: str = "apa") -> str:
+    """
+    Formats a citation for a DOI using CrossRef/DOI content negotiation.
+    Supported styles: apa, ieee, chicago-author-date, harvard-cite-them-right,
+    vancouver, modern-language-association, turabian-fullnote-bibliography.
+    """
+    doi = _normalize_doi(doi)
+    if not doi:
+        return "Error: No DOI provided."
+
+    url = f"https://doi.org/{doi}"
+    headers = {"Accept": f"text/x-bibliography; style={style}"}
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
+            res = await client.get(url, headers=headers)
+            if res.status_code == 200:
+                return res.text.strip()
+            return f"Error: Citation service returned HTTP {res.status_code} for DOI: {doi} with style: {style}"
+    except Exception as e:
+        return f"Error formatting citation: {str(e)}"
+
+
+async def get_related_works_openalex(paper_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Gets related/similar works for a paper via OpenAlex's related_works field.
+    Accepts DOI or OpenAlex ID (Wxxxx).
+    """
+    paper_id = _normalize_doi(paper_id)
+
+    if paper_id.startswith("10."):
+        url = f"https://api.openalex.org/works/https://doi.org/{paper_id}"
+    elif paper_id.startswith("W"):
+        url = f"https://api.openalex.org/works/{paper_id}"
+    else:
+        return []
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
+        res = await client.get(url, params={"mailto": CONTACT_EMAIL})
+        if res.status_code != 200:
+            return []
+        work = res.json()
+
+    related_ids = work.get("related_works", [])[:limit]
+    if not related_ids:
+        return []
+
+    openalex_filter = "|".join(r.split("/")[-1] for r in related_ids)
+    params = {
+        "filter": f"openalex:{openalex_filter}",
+        "per-page": limit,
+        "mailto": CONTACT_EMAIL
+    }
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT) as client:
+        res = await client.get("https://api.openalex.org/works", params=params)
+        if res.status_code != 200:
+            return []
+        data = res.json()
+
+    results = []
+    for w in data.get("results", []):
+        results.append({
+            "id": w.get("id"),
+            "title": w.get("title", ""),
+            "authors": [a.get("author", {}).get("display_name") for a in w.get("authorships", [])],
+            "year": w.get("publication_year", ""),
+            "doi": w.get("doi", ""),
+            "cited_by_count": w.get("cited_by_count", 0),
+            "open_access_pdf": w.get("open_access", {}).get("oa_url")
+        })
+    return results
+

@@ -122,15 +122,16 @@ Configure your MCP client (Claude Desktop, Cursor, Gemini CLI, etc.) by pointing
 
 ## Tools
 
-The server registers the following tools to the connected MCP client:
+The server registers **15 tools** across 6 categories:
 
 ### Paper Discovery
 
-| Tool                           | Signature                                                      | Description                                                                                                   |
-|--------------------------------|----------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
-| `search_papers_tool`           | `(query, limit=5, use_scopus=True)`                            | Search papers via Scopus (supports advanced Boolean syntax) or OpenAlex.                                      |
-| `get_paper_details_tool`       | `(paper_id)`                                                   | Fetch full metadata and abstract by Scopus ID, DOI, or OpenAlex ID (with automatic routing).                 |
-| `search_titles_unpaywall_tool` | `(query, is_oa=None)`                                          | Search Unpaywall's database directly by title. Set `is_oa=True` for strictly OA results.                      |
+| Tool                           | Signature                                                                | Description                                                                                                   |
+|--------------------------------|--------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| `search_papers_tool`           | `(query, limit=5, use_scopus=True, sort_by="relevance")`                | Search papers via Scopus (Boolean syntax) or OpenAlex. Sort by `cited_by_count` or `publication_year`.        |
+| `get_paper_details_tool`       | `(paper_id)`                                                             | Fetch full metadata and abstract by Scopus ID, DOI, or OpenAlex ID (with automatic routing).                  |
+| `search_titles_unpaywall_tool` | `(query, is_oa=None)`                                                    | Search Unpaywall's database directly by title. Set `is_oa=True` for strictly OA results.                      |
+| `get_related_works_tool`       | `(paper_id, limit=10)`                                                   | Find related/similar papers using OpenAlex's bibliographic coupling.                                          |
 
 ### Author Analytics
 
@@ -149,11 +150,18 @@ The server registers the following tools to the connected MCP client:
 
 ### Full-Text & PDF
 
-| Tool                            | Signature               | Description                                                                              |
-|---------------------------------|-------------------------|------------------------------------------------------------------------------------------|
-| `get_full_text_tool`            | `(url)`                 | Extract text from an OA PDF or HTML page using PyMuPDF.                                  |
-| `get_full_text_visual_tool`     | `(url, max_pages=3)`    | Render PDF pages as images for Vision-capable LLMs.                                      |
-| `fetch_pdf_text_unpaywall_tool` | `(doi)`                 | All-in-one: resolve DOI via Unpaywall → download PDF → extract text.                     |
+| Tool                            | Signature                                 | Description                                                                              |
+|---------------------------------|-------------------------------------------|------------------------------------------------------------------------------------------|
+| `get_full_text_tool`            | `(url, start_page=None, end_page=None)`   | Extract text from an OA PDF or HTML page. Supports page range selection.                 |
+| `get_full_text_visual_tool`     | `(url, max_pages=3)`                      | Render PDF pages as images for Vision-capable LLMs.                                      |
+| `fetch_pdf_text_unpaywall_tool` | `(doi)`                                   | All-in-one: resolve DOI via Unpaywall → download PDF → extract text.                     |
+
+### Citation & Writing
+
+| Tool                    | Signature                  | Description                                                                      |
+|-------------------------|----------------------------|----------------------------------------------------------------------------------|
+| `get_bibtex_tool`       | `(doi)`                    | Generate a BibTeX entry for LaTeX via CrossRef content negotiation.               |
+| `format_citation_tool`  | `(doi, style="apa")`      | Format citation in APA, IEEE, Chicago, Harvard, Vancouver, MLA, or Turabian.     |
 
 ### Open Access Resolution
 

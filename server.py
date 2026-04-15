@@ -5,19 +5,21 @@ from api import (
     search_papers_scopus, get_paper_details_scopus, get_paper_details_openalex,
     get_author_profile_scopus, search_papers_openalex, get_citations_openalex,
     autocomplete_authors_openalex, search_authors_openalex,
-    retrieve_author_works_openalex, get_unpaywall_pdf_link, search_titles_unpaywall
+    retrieve_author_works_openalex, get_unpaywall_pdf_link, search_titles_unpaywall,
+    get_bibtex_crossref, format_citation_crossref, get_related_works_openalex
 )
 from extractor import extract_text_from_pdf_url, render_pdf_to_images_from_url
 
 mcp = FastMCP("Scholar MCP Server")
 
 @mcp.tool()
-async def search_papers_tool(query: str, limit: int = 5, use_scopus: bool = True) -> str:
+async def search_papers_tool(query: str, limit: int = 5, use_scopus: bool = True, sort_by: str = "relevance") -> str:
     """
     Searches the Scopus library by accepting standard textual querying or advanced 
     Scopus Boolean Syntax (e.g. `TITLE-ABS-KEY(artificial intelligence) AND PUBYEAR > 2020`).
     Returns metadata summaries.
     Set use_scopus=False to use OpenAlex which guarantees Open Access PDF links but might have less robust abstracts in standard search.
+    sort_by: 'relevance' (default), 'cited_by_count' (most cited first), 'publication_year' (newest first). Only works with OpenAlex.
     Returns a formatted string of results.
     """
     if not query or not query.strip():
@@ -28,7 +30,7 @@ async def search_papers_tool(query: str, limit: int = 5, use_scopus: bool = True
             results = await search_papers_scopus(query, limit)
             source = "Scopus"
         else:
-            results = await search_papers_openalex(query, limit)
+            results = await search_papers_openalex(query, limit, sort_by=sort_by)
             source = "OpenAlex"
 
         if not results:
@@ -109,14 +111,15 @@ async def get_paper_details_tool(paper_id: str) -> str:
         return f"Error getting details: {str(e)}"
 
 @mcp.tool()
-async def get_full_text_tool(url: str) -> str:
+async def get_full_text_tool(url: str, start_page: int = None, end_page: int = None) -> str:
     """
     Extracts full text from an Open Access PDF or HTML page given its URL.
     This is best used after finding an OA PDF link from search_papers_openalex.
+    Use start_page/end_page (1-indexed) to extract only specific pages from long PDFs.
     Warning: This can return a very large string.
     """
     try:
-        text = await extract_text_from_pdf_url(url)
+        text = await extract_text_from_pdf_url(url, start_page=start_page, end_page=end_page)
         return text
     except Exception as e:
         return f"Error extracting full text from {url}: {str(e)}"
@@ -320,6 +323,58 @@ async def fetch_pdf_text_unpaywall_tool(doi: str) -> str:
         return await extract_text_from_pdf_url(pdf_url)
     except Exception as e:
         return f"Error fetching and extracting Unpaywall text: {e}"
+
+@mcp.tool()
+async def get_bibtex_tool(doi: str) -> str:
+    """
+    Generate a BibTeX entry for a paper given its DOI.
+    Uses CrossRef content negotiation to produce a properly formatted BibTeX string
+    ready for use in LaTeX documents.
+    """
+    try:
+        return await get_bibtex_crossref(doi)
+    except Exception as e:
+        return f"Error generating BibTeX: {e}"
+
+@mcp.tool()
+async def format_citation_tool(doi: str, style: str = "apa") -> str:
+    """
+    Format a citation for a paper in a specific style.
+    Supported styles: apa, ieee, chicago-author-date, harvard-cite-them-right,
+    vancouver, modern-language-association, turabian-fullnote-bibliography.
+    Uses CrossRef/DOI content negotiation for authoritative formatting.
+    """
+    valid_styles = ["apa", "ieee", "chicago-author-date", "harvard-cite-them-right",
+                    "vancouver", "modern-language-association", "turabian-fullnote-bibliography"]
+    if style not in valid_styles:
+        return f"Error: Unknown style '{style}'. Supported: {', '.join(valid_styles)}"
+    try:
+        return await format_citation_crossref(doi, style)
+    except Exception as e:
+        return f"Error formatting citation: {e}"
+
+@mcp.tool()
+async def get_related_works_tool(paper_id: str, limit: int = 10) -> str:
+    """
+    Find related/similar papers for a given paper.
+    Accepts a DOI (10.xxx) or OpenAlex ID (Wxxx).
+    Uses OpenAlex's bibliographic coupling and co-citation analysis to find semantically related works.
+    """
+    try:
+        results = await get_related_works_openalex(paper_id, limit)
+        if not results:
+            return f"No related works found for {paper_id}."
+        out = [f"Found {len(results)} related works:\n"]
+        for r in results:
+            authors = ', '.join(r['authors']) if isinstance(r['authors'], list) else str(r['authors'])
+            out.append(f"- [{r['year']}] {r['title']} (Cited by: {r['cited_by_count']})")
+            out.append(f"  Authors: {authors}")
+            out.append(f"  DOI: {r.get('doi', '')}")
+            out.append(f"  OA PDF: {r.get('open_access_pdf') or 'Not Available'}")
+            out.append("")
+        return "\n".join(out)
+    except Exception as e:
+        return f"Error finding related works: {e}"
 
 if __name__ == "__main__":
     mcp.run()
