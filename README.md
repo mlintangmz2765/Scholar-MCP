@@ -75,30 +75,28 @@ graph TD
 
 ## Installation
 
-### Prerequisites
+### Quick Start (via PyPI)
 
-- Python 3.10+
-- [Elsevier Developer API Key](https://dev.elsevier.com/) (for Scopus features)
+The fastest way to use the server is directly via PyPI:
 
-### Setup
+```bash
+pip install scholar-academic-mcp
+```
+
+### Manual Setup (for Development)
 
 ```bash
 # Clone the repository
 git clone https://github.com/mlintangmz2765/Scholar-MCP.git
 cd Scholar-MCP
 
-# Create and activate virtual environment
+# Setup virtual environment
 python -m venv venv
-# Windows
-.\venv\Scripts\activate
-# Unix/macOS
-source venv/bin/activate
+.\venv\Scripts\activate  # Windows
+source venv/bin/activate # Unix
 
 # Install in editable mode
 pip install -e .
-
-# Configure environment
-cp .env.example .env
 ```
 
 ### Environment Variables
@@ -111,16 +109,15 @@ cp .env.example .env
 
 ## Configuration
 
-Configure your MCP client (Claude Desktop, Cursor, Gemini CLI, etc.) by pointing to the virtual environment Python binary and `server.py`:
+### Claude Desktop / Cursor
+
+Add the following to your configuration file (e.g., `claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "scholar-academic-mcp": {
-      "command": "/absolute/path/to/Scholar-MCP/venv/bin/python",
-      "args": [
-        "/absolute/path/to/Scholar-MCP/server.py"
-      ],
+      "command": "scholar-academic-mcp",
       "env": {
         "SCOPUS_API_KEY": "your_scopus_api_key",
         "SCOPUS_INST_TOKEN": "your_optional_inst_token",
@@ -130,8 +127,6 @@ Configure your MCP client (Claude Desktop, Cursor, Gemini CLI, etc.) by pointing
   }
 }
 ```
-
-> **Note:** On Windows, use `venv/Scripts/python.exe` instead of `venv/bin/python`.
 
 ## Tools
 

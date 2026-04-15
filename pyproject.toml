@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.scripts]
-scholar-mcp = "server:mcp.run"
+scholar-academic-mcp = "server:mcp.run"
 
 [tool.setuptools]
 py-modules = ["server", "api", "extractor", "models"]
