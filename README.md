@@ -116,7 +116,7 @@ Configure your MCP client (Claude Desktop, Cursor, Gemini CLI, etc.) by pointing
 ```json
 {
   "mcpServers": {
-    "scholar-mcp": {
+    "scholar-academic-mcp": {
       "command": "/absolute/path/to/Scholar-MCP/venv/bin/python",
       "args": [
         "/absolute/path/to/Scholar-MCP/server.py"
