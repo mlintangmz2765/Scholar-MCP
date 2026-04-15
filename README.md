@@ -106,11 +106,17 @@ The server automatically registers the following tools to the connected MCP Clie
 
 | Tool | Signature | Description |
 |------|-----------|-------------|
-| `search_papers_tool` | `(query: str, limit: int = 5, use_scopus: bool = True)` | Retrieves paper metadata. Defaults to Scopus; toggle `use_scopus=False` to force OpenAlex lookup. |
+| `search_papers_tool` | `(query: str, limit: int = 5, use_scopus: bool = True)` | Retrieves paper metadata. Supports standard terms or Scopus Advanced Boolean syntax (e.g. `TITLE(...) AND PUBYEAR > YYYY`). Toggle `use_scopus=False` to force OpenAlex lookup. |
 | `get_paper_details_tool` | `(paper_id: str)` | Fetches granular metadata, full abstracts, and resolves Open Access status via Scopus. |
-| `get_unpaywall_link_tool` | `(doi: str)` | Checks the Unpaywall database using a DOI to locate free institutional or pre-print PDF paths. |
+| `get_unpaywall_link_tool` | `(doi: str)` | Checks the Unpaywall database using a DOI to locate all free institutional or pre-print PDF paths. |
 | `get_citations_tool` | `(paper_id: str, direction: str = "references")` | Tracks lineage. Fetch bibliography (references) or forward citations via OpenAlex natively. |
+| `autocomplete_authors_tool` | `(name: str, limit: int = 5)` | Rapidly search OpenAlex to disambiguate and identify the correct Author ID. |
+| `search_authors_tool` | `(name: str, institution: str, limit: int = 5)` | Deep search for an author's profile (h-index, concepts, latest affiliations) via OpenAlex. |
+| `retrieve_author_works_tool` | `(author_id: str, limit: int = 15)` | Retrieve chronologically sorted publications for an OpenAlex author ID. |
+| `get_author_profile_scopus_tool`| `(author_id: str)` | Fetch precise academic metrics (h-index, total citations) from Elsevier Scopus using a Scopus Author ID. |
+| `search_titles_unpaywall_tool` | `(query: str, is_oa: bool)` | Natively search Unpaywall's global database via paper titles. Set `is_oa=True` for strictly free papers. |
 | `get_full_text_tool` | `(url: str)` | Downloads an Open Access PDF down to unstructured text, accurately preserving layout using `PyMuPDF`. |
+| `fetch_pdf_text_unpaywall_tool`| `(doi: str)` | All-in-one bypass: Takes a DOI, resolves best PDF on Unpaywall, and extracts text seamlessly using `PyMuPDF`. |
 | `get_full_text_visual_tool`| `(url: str, max_pages: int = 3)` | Streams an OA PDF into a high-fidelity image sequence directly to the AI's Vision pipeline. |
 
 ## Development

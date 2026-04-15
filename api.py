@@ -174,16 +174,15 @@ async def search_papers_openalex(query: str, limit: int = 5) -> List[Dict[str, A
 
     return results
 
-async def get_unpaywall_pdf_link(doi: str) -> str:
+async def get_unpaywall_pdf_link(doi: str) -> Dict[str, Any]:
     """
-    Query Unpaywall API to find an Open Access PDF link using the DOI.
-    Returns the URL or an error message.
+    Query Unpaywall API to find Open Access information.
+    Instead of just returning one link, it returns all OA locations to mirror unpaywall-mcp capability.
     """
     if not doi:
-        return ""
+        return {"error": "No DOI provided"}
         
     url = f"https://api.unpaywall.org/v2/{doi}"
-    # Unpaywall requires an email parameter for respectful rate-limits
     params = {"email": CONTACT_EMAIL}
     
     try:
@@ -191,13 +190,173 @@ async def get_unpaywall_pdf_link(doi: str) -> str:
             response = await client.get(url, params=params)
             if response.status_code == 200:
                 data = response.json()
-                loc = data.get("best_oa_location")
-                if loc:
-                    return loc.get("url_for_pdf") or loc.get("url") or ""
+                return {
+                    "is_oa": data.get("is_oa", False),
+                    "best_oa_location": data.get("best_oa_location"),
+                    "oa_locations": data.get("oa_locations", []),
+                    "title": data.get("title")
+                }
     except Exception as e:
-        return f"Error contacting Unpaywall: {str(e)}"
+        return {"error": f"Error contacting Unpaywall: {str(e)}"}
     
-    return ""
+    return {"error": "Failed to resolve DOI at Unpaywall."}
+
+# ==========================================
+# OPENALEX AUTHOR ANALYTICS (from alex-mcp)
+# ==========================================
+
+async def autocomplete_authors_openalex(name: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Rapidly search api.openalex.org/autocomplete/authors.
+    """
+    url = "https://api.openalex.org/autocomplete/authors"
+    params = {"q": name, "mailto": CONTACT_EMAIL}
+    
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, params=params)
+        if res.status_code != 200:
+            return []
+        data = res.json()
+    
+    results = []
+    for item in data.get("results", [])[:limit]:
+        results.append({
+            "id": item.get("id"),
+            "display_name": item.get("display_name"),
+            "hint": item.get("hint", "No institution"),
+            "works_count": item.get("works_count", 0),
+            "cited_by_count": item.get("cited_by_count", 0)
+        })
+    return results
+
+async def search_authors_openalex(name: str, institution: str = None, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Deep profile search using normal /authors endpoint for authors.
+    """
+    url = "https://api.openalex.org/authors"
+    params = {"search": name, "mailto": CONTACT_EMAIL, "per-page": limit}
+    if institution:
+        # We can add an institutions filter if we wanted, but openalex API requires institution IDs.
+        # So we just search by name and filter post-request if needed, or rely on search.
+        pass
+        
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, params=params)
+        if res.status_code != 200:
+            return []
+        data = res.json()
+        
+    results = []
+    for author in data.get("results", []):
+        affil = author.get("last_known_institution", {})
+        results.append({
+            "id": author.get("id"),
+            "display_name": author.get("display_name"),
+            "orcid": author.get("orcid"),
+            "works_count": author.get("works_count"),
+            "cited_by_count": author.get("cited_by_count"),
+            "h_index": author.get("summary_stats", {}).get("h_index"),
+            "i10_index": author.get("summary_stats", {}).get("i10_index"),
+            "last_institution": affil.get("display_name") if affil else "Unknown",
+            "x_concepts": [c.get("display_name") for c in author.get("x_concepts", [])[:3]]
+        })
+    return results
+
+async def retrieve_author_works_openalex(author_id: str, limit: int = 15) -> List[Dict[str, Any]]:
+    """
+    Retrieves chronologically sorted works by an author.
+    author_id should be an OpenAlex ID (e.g. Wxxx or Axxx).
+    """
+    # Just in case we get a full url
+    if author_id.startswith("http"):
+        author_id = author_id.split("/")[-1]
+        
+    url = "https://api.openalex.org/works"
+    params = {
+        "filter": f"author.id:{author_id}",
+        "sort": "publication_year:desc,cited_by_count:desc",
+        "per-page": limit,
+        "mailto": CONTACT_EMAIL
+    }
+    
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, params=params)
+        res.raise_for_status()
+        data = res.json()
+        
+    results = []
+    for work in data.get("results", []):
+        results.append({
+            "id": work.get("id"),
+            "title": work.get("title"),
+            "year": work.get("publication_year"),
+            "citations": work.get("cited_by_count", 0),
+            "oa_url": work.get("open_access", {}).get("oa_url")
+        })
+    return results
+
+# ==========================================
+# SCOPUS AUTHOR ANALYTICS (from scopus-mcp)
+# ==========================================
+
+async def get_author_profile_scopus(author_id: str) -> Dict[str, Any]:
+    """
+    Get author profile via Scopus API.
+    """
+    if not SCOPUS_API_KEY:
+        raise ValueError("SCOPUS_API_KEY is not set.")
+        
+    url = f"https://api.elsevier.com/content/author/author_id/{author_id}"
+    headers = {"X-ELS-APIKey": SCOPUS_API_KEY, "Accept": "application/json"}
+    if SCOPUS_INST_TOKEN:
+        headers["X-ELS-Insttoken"] = SCOPUS_INST_TOKEN
+        
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, headers=headers)
+        if res.status_code != 200:
+            return {"error": f"Scopus auth query failed: {res.status_code}", "raw": res.text}
+        data = res.json()
+        
+    author_resp = data.get("author-retrieval-response", [{}])[0]
+    profile = author_resp.get("author-profile", {})
+    name_obj = profile.get("preferred-name", {})
+    name = f"{name_obj.get('given-name', '')} {name_obj.get('surname', '')}".strip()
+    
+    return {
+        "scopus_id": author_resp.get("coredata", {}).get("dc:identifier", "").split(":")[-1],
+        "name": name,
+        "document_count": author_resp.get("coredata", {}).get("document-count", "0"),
+        "cited_by_count": author_resp.get("coredata", {}).get("cited-by-count", "0"),
+        "citation_count": author_resp.get("coredata", {}).get("citation-count", "0"),
+        "h_index": author_resp.get("h-index", "N/A"),
+        "current_affiliation": profile.get("affiliation-current", {}).get("affiliation", {}).get("ip-doc", {}).get("afdispname", "Unknown")
+    }
+
+# ==========================================
+# UNPAYWALL SEARCH (from unpaywall-mcp)
+# ==========================================
+
+async def search_titles_unpaywall(query: str, is_oa: bool = None, page: int = 1) -> Dict[str, Any]:
+    """
+    Hits Unpaywall title search directly.
+    """
+    url = "https://api.unpaywall.org/v2/search"
+    params = {
+        "query": query,
+        "email": CONTACT_EMAIL,
+        "page": page
+    }
+    if is_oa is True:
+        params["is_oa"] = "true"
+    elif is_oa is False:
+        params["is_oa"] = "false"
+        
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, params=params)
+        if res.status_code != 200:
+            return {"error": f"Failed Unpaywall search: {res.status_code}", "raw": res.text}
+        
+    return res.json()
 
 async def get_citations_openalex(doi_or_id: str, direction: str = "references", limit: int = 20) -> List[Dict[str, Any]]:
     """
