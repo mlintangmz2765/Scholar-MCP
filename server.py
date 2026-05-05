@@ -16,9 +16,14 @@ from api import (
     autocomplete_authors_openalex, search_authors_openalex,
     retrieve_author_works_openalex, get_unpaywall_pdf_link, search_titles_unpaywall,
     get_bibtex_crossref, format_citation_crossref, get_related_works_openalex,
-    batch_get_papers_openalex, search_topics_openalex, search_author_by_orcid_openalex
+    batch_get_papers_openalex, search_topics_openalex, search_author_by_orcid_openalex,
+    search_papers_s2, get_paper_details_s2, get_author_profile_s2,
+    resolve_scihub_pdf,
+    search_books_openlibrary, get_book_details_openlibrary,
+    search_books_google, get_book_details_google,
+    search_libgen, resolve_libgen_download
 )
-from extractor import extract_text_from_pdf_url, render_pdf_to_images_from_url
+from extractor import extract_text_from_pdf_url, render_pdf_to_images_from_url, smart_extract_document
 
 mcp = FastMCP("Scholar MCP Server")
 
@@ -481,6 +486,228 @@ async def search_author_by_orcid_tool(orcid: str) -> str:
         return "\n".join(out)
     except Exception as e:
         return f"Error looking up ORCID: {e}"
+
+@mcp.tool()
+async def search_papers_s2_tool(query: str, limit: int = 5) -> str:
+    """
+    Search papers using Semantic Scholar (S2).
+    S2 provides excellent relevance sorting and AI-generated TLDRs on details.
+    NOTE: S2 has a strict 1 request/second rate limit, so this tool may be slightly slower than OpenAlex or Scopus.
+    """
+    try:
+        results = await search_papers_s2(query, limit)
+        if not results:
+            return f"No papers found in Semantic Scholar for query: {query}"
+        
+        out = [f"Found {len(results)} papers via Semantic Scholar:"]
+        for p in results:
+            out.append(f"- [S2_ID:{p['id']}] {p['title']}")
+            out.append(f"  Authors: {', '.join(p['authors'][:5])}{' et al.' if len(p['authors']) > 5 else ''}")
+            out.append(f"  Year: {p['year']} | Citations: {p['citations']}")
+            if p['open_access_pdf']:
+                out.append(f"  [PDF Available]: {p['open_access_pdf']}")
+        return "\n".join(out)
+    except Exception as e:
+        return f"Semantic Scholar search error: {e}"
+
+@mcp.tool()
+async def get_paper_details_s2_tool(paper_id: str) -> str:
+    """
+    Get detailed metadata from Semantic Scholar, including the AI-generated TLDR.
+    Accepts an S2 paper ID or a DOI (e.g., 10.1038/nrn3241).
+    """
+    try:
+        p = await get_paper_details_s2(paper_id)
+        if "error" in p:
+            return p["error"]
+        
+        out = [
+            f"Paper Details (Semantic Scholar)",
+            f"Title: {p['title']}",
+            f"Authors: {', '.join(p['authors'])}",
+            f"Year: {p['year']} | Venue: {p['venue']}",
+            f"Citations: {p['citations']}",
+            f"DOI: {p['doi']}",
+            f"\n[AI TLDR]:\n{p['tldr']}",
+            f"\n[Abstract]:\n{p['abstract']}"
+        ]
+        if p['open_access_pdf']:
+            out.append(f"\n[Open Access PDF]: {p['open_access_pdf']}")
+            
+        return "\n".join(out)
+    except Exception as e:
+        return f"Semantic Scholar details error: {e}"
+
+@mcp.tool()
+async def get_author_profile_s2_tool(author_id: str) -> str:
+    """
+    Get author bibliometrics from Semantic Scholar using an S2 authorId.
+    """
+    try:
+        a = await get_author_profile_s2(author_id)
+        if "error" in a:
+            return a["error"]
+        
+        out = [
+            f"Author Profile (Semantic Scholar)",
+            f"Name: {a['name']} (S2 ID: {a['id']})",
+            f"H-Index: {a['h_index']}",
+            f"Papers: {a['paper_count']} | Citations: {a['citation_count']}",
+        ]
+        if a['affiliations']:
+            out.append(f"Affiliations: {', '.join(a['affiliations'])}")
+            
+        return "\n".join(out)
+    except Exception as e:
+        return f"Semantic Scholar author error: {e}"
+
+@mcp.tool()
+async def get_scihub_link_tool(doi: str) -> str:
+    """
+    Attempts to resolve a strict paywalled DOI to a free direct PDF link using Sci-Hub.
+    """
+    try:
+        res = await resolve_scihub_pdf(doi)
+        if res.get("success"):
+            return f"Sci-Hub PDF resolved via {res['mirror_used']}:\n{res['pdf_url']}"
+        return res.get("error", "Failed to resolve Sci-Hub link.")
+    except Exception as e:
+        return f"Sci-Hub resolution error: {e}"
+
+@mcp.tool()
+async def fetch_pdf_text_scihub_tool(doi: str) -> str:
+    """
+    An all-in-one bypass that resolves a DOI via Sci-Hub and directly extracts its full text using PyMuPDF.
+    """
+    try:
+        res = await resolve_scihub_pdf(doi)
+        if not res.get("success"):
+            return res.get("error", "Failed to resolve Sci-Hub link.")
+        
+        pdf_url = res['pdf_url']
+        return await extract_text_from_pdf_url(pdf_url)
+    except Exception as e:
+        return f"Sci-Hub PDF extraction error: {e}"
+
+@mcp.tool()
+async def search_books_tool(query: str, limit: int = 5, source: str = "openlibrary") -> str:
+    """
+    Search for books using either 'openlibrary' or 'googlebooks'.
+    Returns a list of matching books with titles, authors, and year.
+    """
+    try:
+        source = source.lower()
+        if source == "googlebooks":
+            results = await search_books_google(query, limit)
+            source_name = "Google Books"
+        else:
+            results = await search_books_openlibrary(query, limit)
+            source_name = "Open Library"
+            
+        if not results:
+            return f"No books found for '{query}' in {source_name}."
+
+        out = [f"Found {len(results)} books via {source_name}:\n"]
+        for b in results:
+            authors = ", ".join(b.get("authors", [])) if b.get("authors") else "Unknown"
+            out.append(f"- [{b['id']}] {b['title']}")
+            out.append(f"  Authors: {authors}")
+            out.append(f"  Year: {b.get('year', '')}")
+            if source == "googlebooks":
+                out.append(f"  Publisher: {b.get('publisher', '')}")
+            else:
+                out.append(f"  Editions: {b.get('editions', 0)}")
+            out.append("")
+        return "\n".join(out)
+    except Exception as e:
+        logger.error(f"Error executing search_books_tool: {e}", exc_info=True)
+        return f"Error searching books: {str(e)}"
+
+@mcp.tool()
+async def get_book_details_tool(book_id: str, source: str = "openlibrary") -> str:
+    """
+    Get detailed metadata for a specific book.
+    Provide the book_id (e.g., OL12345W or Google Volume ID) and the source ('openlibrary' or 'googlebooks').
+    """
+    try:
+        source = source.lower()
+        if source == "googlebooks":
+            b = await get_book_details_google(book_id)
+            if "error" in b:
+                return b["error"]
+                
+            authors = ", ".join(b.get("authors", [])) if b.get("authors") else "Unknown"
+            out = [
+                f"Book Details (Google Books)",
+                f"Title: {b.get('title', '')}",
+                f"Authors: {authors}",
+                f"Publisher: {b.get('publisher', '')} ({b.get('publishedDate', '')})",
+                f"Pages: {b.get('pageCount', '')}",
+                f"Categories: {', '.join(b.get('categories', []))}",
+                f"\n[Description]:\n{b.get('description', '')}"
+            ]
+            if b.get("previewLink"):
+                out.append(f"\n[Preview Link]: {b['previewLink']}")
+            return "\n".join(out)
+            
+        else:
+            b = await get_book_details_openlibrary(book_id)
+            if "error" in b:
+                return b["error"]
+                
+            out = [
+                f"Book Details (Open Library)",
+                f"Title: {b.get('title', '')}",
+                f"Subjects: {', '.join(b.get('subjects', []))}",
+                f"Author IDs: {', '.join(b.get('author_ids', []))}",
+                f"\n[Description]:\n{b.get('description', '')}"
+            ]
+            return "\n".join(out)
+    except Exception as e:
+        logger.error(f"Error executing get_book_details_tool: {e}", exc_info=True)
+        return f"Error getting book details: {str(e)}"
+
+@mcp.tool()
+async def search_libgen_tool(query: str, limit: int = 5) -> str:
+    """
+    Search for books in Library Genesis (Libgen).
+    Returns books with their 'md5' which can be used to extract the text.
+    """
+    try:
+        results = await search_libgen(query, limit)
+        if not results:
+            return f"No books found in Libgen for '{query}'."
+
+        out = [f"Found {len(results)} books in Libgen:\n"]
+        for b in results:
+            out.append(f"- {b['title']}")
+            out.append(f"  Authors: {b.get('authors', '')}")
+            out.append(f"  Year: {b.get('year', '')} | Publisher: {b.get('publisher', '')}")
+            out.append(f"  Size: {b.get('size', '')} | Ext: {b.get('extension', '')} | Pages: {b.get('pages', '')}")
+            out.append(f"  MD5: {b.get('md5', '')}")
+            out.append("")
+        return "\n".join(out)
+    except Exception as e:
+        return f"Error searching Libgen: {e}"
+
+@mcp.tool()
+async def interact_with_book_tool(md5: str, action: str = "toc", keyword: str = None, start_page: int = None, end_page: int = None) -> str:
+    """
+    Extract text or interact with a book using its Libgen MD5 hash.
+    action:
+    - 'toc': Returns the table of contents.
+    - 'search': Searches for 'keyword' and returns only pages where it is found.
+    - 'pages': Extracts text strictly from 'start_page' to 'end_page'.
+    """
+    try:
+        res = await resolve_libgen_download(md5)
+        if not res.get("success"):
+            return res.get("error", "Failed to resolve download link.")
+            
+        url = res["download_url"]
+        return await smart_extract_document(url, action=action, keyword=keyword, start_page=start_page, end_page=end_page)
+    except Exception as e:
+        return f"Error interacting with book: {e}"
 
 if __name__ == "__main__":
     mcp.run()

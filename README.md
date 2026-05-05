@@ -5,14 +5,20 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Registry](https://img.shields.io/badge/Registry-Verified-blue)](https://registry.modelcontextprotocol.io/)
 
-A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server providing structured access to scientific literature databases. It serves as a unified interface for **Scopus**, **OpenAlex**, and **Unpaywall**, enabling AI agents to perform systematic paper discovery, author disambiguation, citation lineage tracking, and multimodal Content extraction.
+A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server providing structured access to scientific literature databases. It serves as a unified interface for **Scopus**, **OpenAlex**, **Semantic Scholar**, and **Unpaywall**, enabling AI agents to perform systematic paper discovery, author disambiguation, citation lineage tracking, and multimodal Content extraction.
 
 ## Core Capabilities
 
 - **Unified Literature Search**
+  - **Semantic Scholar Integration** — High-relevance search and detailed metadata, including AI-generated **TLDRs** (requires API key).
   - **Scopus Integration** — Targeted metadata retrieval via advanced Boolean syntax (requires API key).
   - **OpenAlex Integration** — Broad search across 250M+ works with abstract reconstruction.
   - **Unpaywall Resolution** — DOI-to-PDF cross-referencing across global Open Access repositories.
+  - **Sci-Hub Fallback (⚠️ Use with Caution)** — Automatic mirror resolution and parsing for paywall bypassing.
+
+- **Book Search & Extraction**
+  - **Google Books & Open Library** — Integrated search for book metadata, editions, and descriptions without API keys.
+  - **Library Genesis (Libgen)** — Search and extract full text from books directly using PyMuPDF. Features smart caching and token-saving strategies (TOC reading, targeted keyword searching, and page range extraction).
 
 - **Author Identification & Metrics**
   - Instant author disambiguation and ID resolution via OpenAlex autocomplete.
@@ -95,6 +101,9 @@ pip install -e .
 | Variable            | Required | Description                                                       |
 |---------------------|----------|-------------------------------------------------------------------|
 | `SCOPUS_API_KEY`    | Yes      | Elsevier API key for Scopus search and author retrieval.          |
+| `S2_API_KEY`        | No       | Semantic Scholar API key for TLDRs and S2 graph access.           |
+| `SCIHUB_MIRRORS`    | No       | Comma-separated list of active Sci-Hub mirrors for PDF fallback.  |
+| `LIBGEN_MIRRORS`    | No       | Comma-separated list of active Library Genesis mirrors.           |
 | `SCOPUS_INST_TOKEN` | No       | Institutional token for full abstract access via Scopus.          |
 | `CONTACT_EMAIL`     | Yes      | Email for OpenAlex/Unpaywall polite-pool API routing.             |
 
@@ -111,6 +120,9 @@ Add the following to your configuration file (e.g., `claude_desktop_config.json`
       "command": "scholar-academic-mcp",
       "env": {
         "SCOPUS_API_KEY": "your_scopus_api_key",
+        "S2_API_KEY": "your_s2_api_key",
+        "SCIHUB_MIRRORS": "https://sci-hub.ru,https://sci-hub.st",
+        "LIBGEN_MIRRORS": "https://libgen.la,http://libgen.li",
         "SCOPUS_INST_TOKEN": "your_optional_inst_token",
         "CONTACT_EMAIL": "your_email@domain.com"
       }
@@ -163,16 +175,27 @@ Found 1 topics for 'Generative AI':
 
 ## Tools
 
-The server registers **18 tools** across 7 categories:
+The server registers **23 tools** across 7 categories:
 
 ### Paper Discovery
 
 | Tool                           | Signature                                                                | Description                                                                                                   |
 |--------------------------------|--------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
 | `search_papers_tool`           | `(query, limit=5, use_scopus=True, sort_by="relevance")`                | Search papers via Scopus (Boolean syntax) or OpenAlex. Sort by `cited_by_count` or `publication_year`.        |
+| `search_papers_s2_tool`        | `(query, limit=5)`                                                       | Search papers via Semantic Scholar. Note: strictly rate-limited to 1 request/sec.                             |
 | `get_paper_details_tool`       | `(paper_id)`                                                             | Fetch full metadata and abstract by Scopus ID, DOI, or OpenAlex ID (with automatic routing).                  |
+| `get_paper_details_s2_tool`    | `(paper_id)`                                                             | Fetch full metadata from Semantic Scholar, including **AI-generated TLDRs**. Accepts S2 ID or DOI.              |
 | `search_titles_unpaywall_tool` | `(query, is_oa=None)`                                                    | Search Unpaywall's database directly by title. Set `is_oa=True` for strictly OA results.                      |
 | `get_related_works_tool`       | `(paper_id, limit=10)`                                                   | Find related/similar papers using OpenAlex's bibliographic coupling.                                          |
+
+### Book Discovery & Extraction
+
+| Tool                           | Signature                                                                | Description                                                                                                   |
+|--------------------------------|--------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| `search_books_tool`            | `(query, limit=5, source="googlebooks")`                                 | Search for book metadata via Google Books or Open Library.                                                    |
+| `get_book_details_tool`        | `(book_id, source="googlebooks")`                                        | Fetch complete book details, descriptions, and ISBNs.                                                         |
+| `search_libgen_tool`           | `(query, limit=5)`                                                       | Search Library Genesis for books to retrieve their download MD5 hashes.                                       |
+| `interact_with_book_tool`      | `(md5, action, keyword, start_page, end_page)`                           | Smart extraction from Libgen. Actions: `toc` (Table of Contents), `search` (keywords), `pages` (range).       |
 
 ### Author Analytics
 
@@ -183,6 +206,7 @@ The server registers **18 tools** across 7 categories:
 | `search_author_by_orcid_tool`     | `(orcid)`                          | Look up an author directly by ORCID (raw or URL format).                       |
 | `retrieve_author_works_tool`      | `(author_id, limit=15)`           | Chronologically sorted publications for a given OpenAlex author.               |
 | `get_author_profile_scopus_tool`  | `(author_id)`                      | Fetch precise Scopus-sourced h-index, citation counts, and affiliation.        |
+| `get_author_profile_s2_tool`      | `(author_id)`                      | Fetch Semantic Scholar author profile (H-index, paper count, citations).       |
 
 ### Citation Tracking
 
@@ -197,6 +221,8 @@ The server registers **18 tools** across 7 categories:
 | `get_full_text_tool`            | `(url, start_page=None, end_page=None)`   | Extract text from an OA PDF or HTML page. Supports page range selection.                 |
 | `get_full_text_visual_tool`     | `(url, max_pages=3)`                      | Render PDF pages as images for Vision-capable LLMs.                                      |
 | `fetch_pdf_text_unpaywall_tool` | `(doi)`                                   | All-in-one: resolve DOI via Unpaywall → download PDF → extract text.                     |
+| `get_scihub_link_tool`          | `(doi)`                                   | Attempts to resolve a strict paywalled DOI to a free direct PDF link using Sci-Hub.      |
+| `fetch_pdf_text_scihub_tool`    | `(doi)`                                   | All-in-one bypass: resolve DOI via Sci-Hub → download PDF → extract text.                |
 
 ### Citation & Writing
 
