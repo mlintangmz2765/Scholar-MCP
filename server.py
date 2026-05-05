@@ -672,6 +672,9 @@ async def search_libgen_tool(query: str, limit: int = 5) -> str:
     """
     Search for books in Library Genesis (Libgen).
     Returns books with their 'md5' which can be used to extract the text.
+    BEST PRACTICE: To know what a book is about before downloading, ALWAYS use 
+    'search_books_tool' (Open Library/Google Books) FIRST to read its synopsis/description. 
+    Once you decide which book is best, use this tool to find its MD5 for text extraction.
     """
     try:
         results = await search_libgen(query, limit)
